@@ -8,19 +8,33 @@ export default function Home() {
         </div>
 
         <div className="hidden gap-8 text-sm text-slate-300 md:flex">
-          <a href="#features" className="hover:text-white">Features</a>
-          <a href="#how" className="hover:text-white">How it works</a>
-          <a href="#pricing" className="hover:text-white">Pricing</a>
+          <a href="#features" className="hover:text-white">
+            Features
+          </a>
+
+          <a href="#how" className="hover:text-white">
+            How it works
+          </a>
+
+          <a href="#pricing" className="hover:text-white">
+            Pricing
+          </a>
         </div>
 
         <div className="flex items-center gap-3">
-          <button className="px-4 py-2 text-sm text-slate-300 hover:text-white">
+          <a
+            href="/login"
+            className="px-4 py-2 text-sm text-slate-300 hover:text-white"
+          >
             Sign in
-          </button>
+          </a>
 
-          <button className="rounded-lg bg-blue-600 px-5 py-2.5 text-sm font-semibold hover:bg-blue-500">
+          <a
+            href="/register"
+            className="rounded-lg bg-blue-600 px-5 py-2.5 text-sm font-semibold hover:bg-blue-500"
+          >
             Start Free
-          </button>
+          </a>
         </div>
       </nav>
 
@@ -33,7 +47,10 @@ export default function Home() {
 
           <h1 className="text-5xl font-bold leading-tight md:text-6xl">
             Turn your website into a
-            <span className="text-blue-500"> 24/7 AI support agent.</span>
+            <span className="text-blue-500">
+              {" "}
+              24/7 AI support agent.
+            </span>
           </h1>
 
           <p className="mt-6 max-w-xl text-lg leading-8 text-slate-400">
@@ -42,13 +59,19 @@ export default function Home() {
           </p>
 
           <div className="mt-9 flex flex-wrap gap-4">
-            <button className="rounded-xl bg-blue-600 px-7 py-3.5 font-semibold hover:bg-blue-500">
+            <a
+              href="/register"
+              className="rounded-xl bg-blue-600 px-7 py-3.5 font-semibold hover:bg-blue-500"
+            >
               Start for Free →
-            </button>
+            </a>
 
-            <button className="rounded-xl border border-slate-700 px-7 py-3.5 font-semibold hover:bg-slate-900">
+            <a
+              href="/test-widget.html"
+              className="rounded-xl border border-slate-700 px-7 py-3.5 font-semibold hover:bg-slate-900"
+            >
               View Demo
-            </button>
+            </a>
           </div>
 
           <p className="mt-5 text-sm text-slate-500">
@@ -64,8 +87,13 @@ export default function Home() {
             </div>
 
             <div>
-              <p className="font-semibold">AI Support Assistant</p>
-              <p className="text-sm text-green-400">● Online</p>
+              <p className="font-semibold">
+                AI Support Assistant
+              </p>
+
+              <p className="text-sm text-green-400">
+                ● Online
+              </p>
             </div>
           </div>
 
@@ -88,6 +116,7 @@ export default function Home() {
             <span className="flex-1 px-3 text-sm text-slate-500">
               Type your message...
             </span>
+
             <button className="rounded-lg bg-blue-600 px-4 py-2 text-sm">
               Send
             </button>
@@ -96,10 +125,16 @@ export default function Home() {
       </section>
 
       {/* Features */}
-      <section id="features" className="border-t border-slate-900 px-6 py-20">
+      <section
+        id="features"
+        className="border-t border-slate-900 px-6 py-20"
+      >
         <div className="mx-auto max-w-7xl">
           <div className="text-center">
-            <p className="font-semibold text-blue-500">POWERFUL & SIMPLE</p>
+            <p className="font-semibold text-blue-500">
+              POWERFUL & SIMPLE
+            </p>
+
             <h2 className="mt-3 text-4xl font-bold">
               Everything you need for AI support
             </h2>
@@ -127,9 +162,17 @@ export default function Home() {
                 key={feature.title}
                 className="rounded-2xl border border-slate-800 bg-slate-900/60 p-7"
               >
-                <div className="text-3xl">{feature.icon}</div>
-                <h3 className="mt-5 text-xl font-semibold">{feature.title}</h3>
-                <p className="mt-3 leading-7 text-slate-400">{feature.text}</p>
+                <div className="text-3xl">
+                  {feature.icon}
+                </div>
+
+                <h3 className="mt-5 text-xl font-semibold">
+                  {feature.title}
+                </h3>
+
+                <p className="mt-3 leading-7 text-slate-400">
+                  {feature.text}
+                </p>
               </div>
             ))}
           </div>
