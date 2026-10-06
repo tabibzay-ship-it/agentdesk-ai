@@ -20,6 +20,9 @@ export default function DashboardPage() {
   const [widgetCompleted, setWidgetCompleted] =
     useState(false);
 
+  const [installCompleted, setInstallCompleted] =
+    useState(false);
+
   const [knowledgeCount, setKnowledgeCount] =
     useState(0);
 
@@ -29,171 +32,251 @@ export default function DashboardPage() {
   const [aiResponseCount, setAiResponseCount] =
     useState(0);
 
+  const [agentOnline, setAgentOnline] =
+    useState(true);
+
+  const [agentName, setAgentName] =
+    useState("AI Support Assistant");
+
+  const [welcomeMessage, setWelcomeMessage] =
+    useState("Hi! 👋 How can I help you today?");
+
+  // =========================================
+  // LOAD DASHBOARD
+  // =========================================
+
   useEffect(() => {
     async function loadDashboard() {
-      // =====================================
-      // Get logged-in user
-      // =====================================
+      try {
+        // =====================================
+        // GET LOGGED-IN USER
+        // =====================================
 
-      const {
-        data: { user },
-        error: userError,
-      } = await supabase.auth.getUser();
+        const {
+          data: { user },
+          error: userError,
+        } = await supabase.auth.getUser();
 
-      if (userError || !user) {
-        router.replace("/login");
-        return;
-      }
+        if (userError || !user) {
+          router.replace("/login");
+          return;
+        }
 
-      // =====================================
-      // User information
-      // =====================================
+        // =====================================
+        // USER INFORMATION
+        // =====================================
 
-      setEmail(user.email ?? "");
+        setEmail(user.email ?? "");
 
-      setName(
-        user.user_metadata?.full_name ?? "User"
-      );
-
-      // =====================================
-      // Step 1 - Business Information
-      // =====================================
-
-      const {
-        data: business,
-        error: businessError,
-      } = await supabase
-        .from("business_profiles")
-        .select("id")
-        .eq("user_id", user.id)
-        .limit(1);
-
-      if (!businessError) {
-        setBusinessCompleted(
-          !!business && business.length > 0
+        setName(
+          user.user_metadata?.full_name ??
+            user.email?.split("@")[0] ??
+            "User"
         );
-      }
 
-      // =====================================
-      // Step 2 - Knowledge Base
-      // =====================================
+        // =====================================
+        // STEP 1 - BUSINESS INFORMATION
+        // =====================================
 
-      const {
-        count: knowledgeTotal,
-        error: knowledgeError,
-      } = await supabase
-        .from("knowledge_sources")
-        .select("*", {
-          count: "exact",
-          head: true,
-        })
-        .eq("user_id", user.id);
+        const {
+          data: business,
+          error: businessError,
+        } = await supabase
+          .from("business_profiles")
+          .select("id")
+          .eq("user_id", user.id)
+          .limit(1);
 
-      if (!knowledgeError) {
-        const total =
-          knowledgeTotal ?? 0;
+        if (!businessError) {
+          setBusinessCompleted(
+            !!business && business.length > 0
+          );
+        } else {
+          console.error(
+            "Business information error:",
+            businessError
+          );
+        }
 
-        setKnowledgeCount(total);
+        // =====================================
+        // STEP 2 - KNOWLEDGE BASE
+        // =====================================
 
-        setKnowledgeCompleted(
-          total > 0
-        );
-      }
-
-      // =====================================
-      // Conversations Count
-      // =====================================
-
-      const {
-        count: conversationsTotal,
-        error: conversationsError,
-      } = await supabase
-        .from("conversations")
-        .select("*", {
-          count: "exact",
-          head: true,
-        })
-        .eq("user_id", user.id);
-
-      if (!conversationsError) {
-        setConversationCount(
-          conversationsTotal ?? 0
-        );
-      } else {
-        console.error(
-          "Conversations count error:",
-          conversationsError
-        );
-      }
-
-      // =====================================
-      // AI Responses Count
-      // =====================================
-
-      const {
-        count: responsesTotal,
-        error: responsesError,
-      } = await supabase
-        .from("messages")
-        .select(
-          `
-          *,
-          conversations!inner(user_id)
-          `,
-          {
+        const {
+          count: knowledgeTotal,
+          error: knowledgeError,
+        } = await supabase
+          .from("knowledge_sources")
+          .select("*", {
             count: "exact",
             head: true,
-          }
-        )
-        .eq("role", "assistant")
-        .eq(
-          "conversations.user_id",
-          user.id
-        );
+          })
+          .eq("user_id", user.id);
 
-      if (!responsesError) {
-        setAiResponseCount(
-          responsesTotal ?? 0
-        );
-      } else {
+        if (!knowledgeError) {
+          const total =
+            knowledgeTotal ?? 0;
+
+          setKnowledgeCount(total);
+
+          setKnowledgeCompleted(
+            total > 0
+          );
+        } else {
+          console.error(
+            "Knowledge count error:",
+            knowledgeError
+          );
+        }
+
+        // =====================================
+        // CONVERSATIONS COUNT
+        // =====================================
+
+        const {
+          count: conversationsTotal,
+          error: conversationsError,
+        } = await supabase
+          .from("conversations")
+          .select("*", {
+            count: "exact",
+            head: true,
+          })
+          .eq("user_id", user.id);
+
+        if (!conversationsError) {
+          setConversationCount(
+            conversationsTotal ?? 0
+          );
+        } else {
+          console.error(
+            "Conversations count error:",
+            conversationsError
+          );
+        }
+
+        // =====================================
+        // AI RESPONSES COUNT
+        // =====================================
+
+        const {
+          count: responsesTotal,
+          error: responsesError,
+        } = await supabase
+          .from("messages")
+          .select(
+            `
+            *,
+            conversations!inner(user_id)
+            `,
+            {
+              count: "exact",
+              head: true,
+            }
+          )
+          .eq("role", "assistant")
+          .eq(
+            "conversations.user_id",
+            user.id
+          );
+
+        if (!responsesError) {
+          setAiResponseCount(
+            responsesTotal ?? 0
+          );
+        } else {
+          console.error(
+            "AI responses count error:",
+            responsesError
+          );
+        }
+
+        // =====================================
+        // STEP 3 + STEP 4
+        // WIDGET SETTINGS
+        // =====================================
+
+        const {
+          data: widget,
+          error: widgetError,
+        } = await supabase
+          .from("widget_settings")
+          .select(
+            `
+            id,
+            agent_name,
+            welcome_message,
+            is_installed
+            `
+          )
+          .eq("user_id", user.id)
+          .maybeSingle();
+
+        if (!widgetError && widget) {
+          // Step 3
+          setWidgetCompleted(true);
+
+          // Step 4
+          setInstallCompleted(
+            widget.is_installed === true
+          );
+
+          // Preview settings
+          setAgentName(
+            widget.agent_name ||
+              "AI Support Assistant"
+          );
+
+          setWelcomeMessage(
+            widget.welcome_message ||
+              "Hi! 👋 How can I help you today?"
+          );
+        } else if (widgetError) {
+          console.error(
+            "Widget settings error:",
+            widgetError
+          );
+        }
+
+        // =====================================
+        // AGENT STATUS
+        // =====================================
+
+        const {
+          data: agentSettings,
+          error: agentError,
+        } = await supabase
+          .from("agent_settings")
+          .select("is_active")
+          .eq("user_id", user.id)
+          .maybeSingle();
+
+        if (!agentError && agentSettings) {
+          setAgentOnline(
+            agentSettings.is_active === true
+          );
+        } else if (agentError) {
+          console.error(
+            "Agent status error:",
+            agentError
+          );
+        }
+      } catch (error) {
         console.error(
-          "AI responses count error:",
-          responsesError
+          "Dashboard loading error:",
+          error
         );
+      } finally {
+        setLoading(false);
       }
-
-      // =====================================
-      // Step 3 - Widget Settings
-      // =====================================
-
-      const {
-        data: widget,
-        error: widgetError,
-      } = await supabase
-        .from("widget_settings")
-        .select("id")
-        .eq("user_id", user.id)
-        .limit(1);
-
-      if (!widgetError) {
-        setWidgetCompleted(
-          !!widget && widget.length > 0
-        );
-      }
-
-      // =====================================
-      // Finish loading
-      // =====================================
-
-      setLoading(false);
     }
 
     loadDashboard();
   }, [router]);
 
-  // =====================================
-  // Logout
-  // =====================================
+  // =========================================
+  // LOGOUT
+  // =========================================
 
   async function handleLogout() {
     await supabase.auth.signOut();
@@ -201,9 +284,9 @@ export default function DashboardPage() {
     router.replace("/login");
   }
 
-  // =====================================
-  // Loading
-  // =====================================
+  // =========================================
+  // LOADING
+  // =========================================
 
   if (loading) {
     return (
@@ -214,6 +297,10 @@ export default function DashboardPage() {
       </main>
     );
   }
+
+  // =========================================
+  // PAGE
+  // =========================================
 
   return (
     <main className="min-h-screen bg-slate-950 text-white">
@@ -235,6 +322,7 @@ export default function DashboardPage() {
           <nav className="space-y-2">
 
             {/* Dashboard */}
+
             <button
               type="button"
               className="w-full rounded-xl bg-blue-600 px-4 py-3 text-left font-medium"
@@ -243,6 +331,7 @@ export default function DashboardPage() {
             </button>
 
             {/* AI Agent */}
+
             <button
               type="button"
               onClick={() =>
@@ -254,6 +343,7 @@ export default function DashboardPage() {
             </button>
 
             {/* Knowledge Base */}
+
             <button
               type="button"
               onClick={() =>
@@ -265,6 +355,7 @@ export default function DashboardPage() {
             </button>
 
             {/* Conversations */}
+
             <button
               type="button"
               onClick={() =>
@@ -276,6 +367,7 @@ export default function DashboardPage() {
             </button>
 
             {/* Website Widget */}
+
             <button
               type="button"
               onClick={() =>
@@ -287,6 +379,7 @@ export default function DashboardPage() {
             </button>
 
             {/* Settings */}
+
             <button
               type="button"
               onClick={() =>
@@ -306,7 +399,8 @@ export default function DashboardPage() {
 
         <section className="flex-1">
 
-          {/* Header */}
+          {/* HEADER */}
+
           <header className="flex items-center justify-between border-b border-slate-800 px-6 py-5 lg:px-10">
 
             <div>
@@ -368,6 +462,7 @@ export default function DashboardPage() {
             <div className="grid gap-5 md:grid-cols-2 xl:grid-cols-4">
 
               {/* Conversations */}
+
               <div className="rounded-2xl border border-slate-800 bg-slate-900 p-6">
 
                 <p className="text-sm text-slate-400">
@@ -385,6 +480,7 @@ export default function DashboardPage() {
               </div>
 
               {/* AI Responses */}
+
               <div className="rounded-2xl border border-slate-800 bg-slate-900 p-6">
 
                 <p className="text-sm text-slate-400">
@@ -402,6 +498,7 @@ export default function DashboardPage() {
               </div>
 
               {/* Knowledge Sources */}
+
               <div className="rounded-2xl border border-slate-800 bg-slate-900 p-6">
 
                 <p className="text-sm text-slate-400">
@@ -419,6 +516,7 @@ export default function DashboardPage() {
               </div>
 
               {/* Agent Status */}
+
               <div className="rounded-2xl border border-slate-800 bg-slate-900 p-6">
 
                 <p className="text-sm text-slate-400">
@@ -427,16 +525,32 @@ export default function DashboardPage() {
 
                 <div className="mt-3 flex items-center gap-2">
 
-                  <span className="h-3 w-3 rounded-full bg-green-500" />
+                  <span
+                    className={`h-3 w-3 rounded-full ${
+                      agentOnline
+                        ? "bg-green-500"
+                        : "bg-red-500"
+                    }`}
+                  />
 
-                  <p className="text-xl font-bold">
-                    Online
+                  <p
+                    className={`text-xl font-bold ${
+                      agentOnline
+                        ? "text-white"
+                        : "text-red-400"
+                    }`}
+                  >
+                    {agentOnline
+                      ? "Online"
+                      : "Offline"}
                   </p>
 
                 </div>
 
                 <p className="mt-2 text-xs text-slate-500">
-                  AI agent is ready
+                  {agentOnline
+                    ? "AI agent is ready"
+                    : "AI agent is disabled"}
                 </p>
 
               </div>
@@ -449,7 +563,8 @@ export default function DashboardPage() {
 
             <div className="mt-8 grid gap-6 lg:grid-cols-2">
 
-              {/* Setup Card */}
+              {/* SETUP CARD */}
+
               <div className="rounded-2xl border border-slate-800 bg-slate-900 p-6">
 
                 <h3 className="text-xl font-semibold">
@@ -464,7 +579,8 @@ export default function DashboardPage() {
                 <div className="mt-6 space-y-4">
 
                   {/* STEP 1 */}
-                  <div className="flex items-center justify-between rounded-xl bg-slate-950 p-4">
+
+                  <div className="flex items-center justify-between gap-4 rounded-xl bg-slate-950 p-4">
 
                     <span>
                       1. Add business information
@@ -489,7 +605,8 @@ export default function DashboardPage() {
                   </div>
 
                   {/* STEP 2 */}
-                  <div className="flex items-center justify-between rounded-xl bg-slate-950 p-4">
+
+                  <div className="flex items-center justify-between gap-4 rounded-xl bg-slate-950 p-4">
 
                     <span>
                       2. Add knowledge
@@ -514,7 +631,8 @@ export default function DashboardPage() {
                   </div>
 
                   {/* STEP 3 */}
-                  <div className="flex items-center justify-between rounded-xl bg-slate-950 p-4">
+
+                  <div className="flex items-center justify-between gap-4 rounded-xl bg-slate-950 p-4">
 
                     <span>
                       3. Customize chat widget
@@ -539,7 +657,8 @@ export default function DashboardPage() {
                   </div>
 
                   {/* STEP 4 */}
-                  <div className="flex items-center justify-between rounded-xl bg-slate-950 p-4">
+
+                  <div className="flex items-center justify-between gap-4 rounded-xl bg-slate-950 p-4">
 
                     <span>
                       4. Install on your website
@@ -550,9 +669,15 @@ export default function DashboardPage() {
                       onClick={() =>
                         router.push("/install")
                       }
-                      className="font-medium text-blue-400 transition hover:text-blue-300"
+                      className={
+                        installCompleted
+                          ? "font-medium text-green-400 transition hover:text-green-300"
+                          : "font-medium text-blue-400 transition hover:text-blue-300"
+                      }
                     >
-                      Pending
+                      {installCompleted
+                        ? "Completed ✓"
+                        : "Pending"}
                     </button>
 
                   </div>
@@ -575,11 +700,19 @@ export default function DashboardPage() {
                   <div>
 
                     <h3 className="font-semibold">
-                      AI Support Assistant
+                      {agentName}
                     </h3>
 
-                    <p className="text-sm text-green-400">
-                      ● Online
+                    <p
+                      className={`text-sm ${
+                        agentOnline
+                          ? "text-green-400"
+                          : "text-red-400"
+                      }`}
+                    >
+                      {agentOnline
+                        ? "● Online"
+                        : "● Offline"}
                     </p>
 
                   </div>
@@ -589,7 +722,7 @@ export default function DashboardPage() {
                 <div className="mt-6 rounded-xl bg-slate-950 p-5">
 
                   <div className="max-w-xs rounded-xl bg-slate-800 p-4 text-sm">
-                    Hi! 👋 How can I help you today?
+                    {welcomeMessage}
                   </div>
 
                   <div className="mt-5 flex gap-2">
