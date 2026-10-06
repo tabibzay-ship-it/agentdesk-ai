@@ -245,6 +245,51 @@ export async function POST(request: Request) {
     }
 
     // =====================================
+    // RATE LIMIT
+    // 10 requests / 60 seconds
+    // =====================================
+
+    const {
+      data: rateAllowed,
+      error: rateLimitError,
+    } = await supabaseAdmin.rpc(
+      "check_chat_rate_limit",
+      {
+        p_agent_id: agentId,
+        p_visitor_id: visitorId,
+        p_limit: 10,
+        p_window_seconds: 60,
+      }
+    );
+
+    if (rateLimitError) {
+      console.error(
+        "Rate limit check error:",
+        rateLimitError
+      );
+
+      return jsonResponse(
+        {
+          error:
+            "Could not check chat rate limit.",
+        },
+        500
+      );
+    }
+
+    if (rateAllowed !== true) {
+      return jsonResponse(
+        {
+          error:
+            "Too many messages. Please wait a minute and try again.",
+          rateLimited: true,
+          retryAfter: 60,
+        },
+        429
+      );
+    }
+
+    // =====================================
     // MONTHLY USAGE
     // =====================================
 
@@ -406,7 +451,7 @@ export async function POST(request: Request) {
     }
 
     // =====================================
-    // CHECK LIMIT
+    // CHECK MONTHLY LIMIT
     // =====================================
 
     if (
