@@ -53,26 +53,6 @@ const supabaseAdmin = createClient(
 );
 
 // =========================================
-// CURRENT MONTH
-// =========================================
-
-function getCurrentMonthStart() {
-  const now = new Date();
-
-  return new Date(
-    Date.UTC(
-      now.getUTCFullYear(),
-      now.getUTCMonth(),
-      1,
-      0,
-      0,
-      0,
-      0
-    )
-  );
-}
-
-// =========================================
 // POST /api/chat
 // =========================================
 
@@ -101,7 +81,9 @@ export async function POST(request: Request) {
       );
     }
 
-    if (message.trim().length > 2000) {
+    const cleanMessage = message.trim();
+
+    if (cleanMessage.length > 2000) {
       return jsonResponse(
         {
           error: "Message is too long.",
@@ -290,31 +272,22 @@ export async function POST(request: Request) {
     }
 
     // =====================================
-    // MONTHLY USAGE
+    // ATOMIC MONTHLY USAGE RESERVATION
     // =====================================
 
-    const currentMonthStart =
-      getCurrentMonthStart();
-
     const {
-      data: usageData,
+      data: usageResult,
       error: usageError,
-    } = await supabaseAdmin
-      .from("usage_limits")
-      .select(
-        `
-        plan,
-        monthly_limit,
-        messages_used,
-        period_start
-        `
-      )
-      .eq("user_id", agentId)
-      .maybeSingle();
+    } = await supabaseAdmin.rpc(
+      "reserve_ai_usage",
+      {
+        p_user_id: agentId,
+      }
+    );
 
     if (usageError) {
       console.error(
-        "Usage query error:",
+        "Atomic usage reservation error:",
         usageError
       );
 
@@ -327,53 +300,9 @@ export async function POST(request: Request) {
       );
     }
 
-    let usage = usageData;
-
-    // =====================================
-    // CREATE USAGE IF MISSING
-    // =====================================
-
-    if (!usage) {
-      const {
-        data: newUsage,
-        error: usageCreateError,
-      } = await supabaseAdmin
-        .from("usage_limits")
-        .insert({
-          user_id: agentId,
-          plan: "free",
-          monthly_limit: 100,
-          messages_used: 0,
-          period_start:
-            currentMonthStart.toISOString(),
-        })
-        .select(
-          `
-          plan,
-          monthly_limit,
-          messages_used,
-          period_start
-          `
-        )
-        .single();
-
-      if (usageCreateError) {
-        console.error(
-          "Usage create error:",
-          usageCreateError
-        );
-
-        return jsonResponse(
-          {
-            error:
-              "Could not create usage record.",
-          },
-          500
-        );
-      }
-
-      usage = newUsage;
-    }
+    const usage = Array.isArray(usageResult)
+      ? usageResult[0]
+      : usageResult;
 
     if (!usage) {
       return jsonResponse(
@@ -385,86 +314,14 @@ export async function POST(request: Request) {
       );
     }
 
-    // =====================================
-    // MONTHLY RESET
-    // =====================================
-
-    const savedPeriodStart =
-      new Date(usage.period_start);
-
-    const monthChanged =
-      savedPeriodStart.getUTCFullYear() !==
-        currentMonthStart.getUTCFullYear() ||
-      savedPeriodStart.getUTCMonth() !==
-        currentMonthStart.getUTCMonth();
-
-    if (monthChanged) {
-      const {
-        data: resetUsage,
-        error: resetError,
-      } = await supabaseAdmin
-        .from("usage_limits")
-        .update({
-          messages_used: 0,
-          period_start:
-            currentMonthStart.toISOString(),
-          updated_at:
-            new Date().toISOString(),
-        })
-        .eq("user_id", agentId)
-        .select(
-          `
-          plan,
-          monthly_limit,
-          messages_used,
-          period_start
-          `
-        )
-        .single();
-
-      if (resetError) {
-        console.error(
-          "Usage reset error:",
-          resetError
-        );
-
-        return jsonResponse(
-          {
-            error:
-              "Could not reset monthly usage.",
-          },
-          500
-        );
-      }
-
-      usage = resetUsage;
-    }
-
-    if (!usage) {
-      return jsonResponse(
-        {
-          error:
-            "Could not load usage information.",
-        },
-        500
-      );
-    }
-
-    // =====================================
-    // CHECK MONTHLY LIMIT
-    // =====================================
-
-    if (
-      usage.messages_used >=
-      usage.monthly_limit
-    ) {
+    if (usage.allowed !== true) {
       return jsonResponse(
         {
           error:
             "Monthly AI message limit reached.",
           limitReached: true,
           plan: usage.plan,
-          used: usage.messages_used,
+          used: usage.used,
           limit: usage.monthly_limit,
         },
         429
@@ -675,7 +532,7 @@ No custom instructions have been provided.
         conversation_id:
           conversationId,
         role: "user",
-        content: message.trim(),
+        content: cleanMessage,
       });
 
     if (customerMessageError) {
@@ -915,30 +772,8 @@ ${knowledgeContext}
     }
 
     // =====================================
-    // INCREMENT MONTHLY USAGE
-    // =====================================
-
-    const {
-      error: incrementError,
-    } = await supabaseAdmin.rpc(
-      "increment_usage",
-      {
-        p_user_id: agentId,
-      }
-    );
-
-    if (incrementError) {
-      console.error(
-        "Usage increment error:",
-        incrementError
-      );
-    }
-
-    const newUsageCount =
-      usage.messages_used + 1;
-
-    // =====================================
     // SUCCESS
+    // Usage already reserved atomically
     // =====================================
 
     return jsonResponse({
@@ -947,13 +782,9 @@ ${knowledgeContext}
 
       usage: {
         plan: usage.plan,
-        used: newUsageCount,
+        used: usage.used,
         limit: usage.monthly_limit,
-        remaining: Math.max(
-          usage.monthly_limit -
-            newUsageCount,
-          0
-        ),
+        remaining: usage.remaining,
       },
     });
   } catch (error) {
