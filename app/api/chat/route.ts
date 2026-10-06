@@ -3,6 +3,33 @@ import { createClient } from "@supabase/supabase-js";
 import { NextResponse } from "next/server";
 
 // =========================================
+// CORS
+// =========================================
+
+const corsHeaders = {
+  "Access-Control-Allow-Origin": "*",
+  "Access-Control-Allow-Methods": "POST, OPTIONS",
+  "Access-Control-Allow-Headers": "Content-Type",
+};
+
+function jsonResponse(
+  data: Record<string, unknown>,
+  status = 200
+) {
+  return NextResponse.json(data, {
+    status,
+    headers: corsHeaders,
+  });
+}
+
+export async function OPTIONS() {
+  return new Response(null, {
+    status: 204,
+    headers: corsHeaders,
+  });
+}
+
+// =========================================
 // OpenAI
 // =========================================
 
@@ -46,25 +73,20 @@ export async function POST(request: Request) {
       typeof message !== "string" ||
       !message.trim()
     ) {
-      return NextResponse.json(
+      return jsonResponse(
         {
           error: "Message is required.",
         },
-        {
-          status: 400,
-        }
+        400
       );
     }
 
-    // Limit message length
     if (message.trim().length > 2000) {
-      return NextResponse.json(
+      return jsonResponse(
         {
           error: "Message is too long.",
         },
-        {
-          status: 400,
-        }
+        400
       );
     }
 
@@ -76,13 +98,11 @@ export async function POST(request: Request) {
       !agentId ||
       typeof agentId !== "string"
     ) {
-      return NextResponse.json(
+      return jsonResponse(
         {
           error: "Agent ID is required.",
         },
-        {
-          status: 400,
-        }
+        400
       );
     }
 
@@ -94,13 +114,11 @@ export async function POST(request: Request) {
       !visitorId ||
       typeof visitorId !== "string"
     ) {
-      return NextResponse.json(
+      return jsonResponse(
         {
           error: "Visitor ID is required.",
         },
-        {
-          status: 400,
-        }
+        400
       );
     }
 
@@ -127,13 +145,11 @@ export async function POST(request: Request) {
         agentSettingsError
       );
 
-      return NextResponse.json(
+      return jsonResponse(
         {
           error: "Could not load AI Agent settings.",
         },
-        {
-          status: 500,
-        }
+        500
       );
     }
 
@@ -145,14 +161,12 @@ export async function POST(request: Request) {
       agentSettings &&
       agentSettings.is_active === false
     ) {
-      return NextResponse.json(
+      return jsonResponse(
         {
           error: "This AI Agent is currently offline.",
           offline: true,
         },
-        {
-          status: 503,
-        }
+        503
       );
     }
 
@@ -227,14 +241,11 @@ No custom instructions have been provided.
         businessError
       );
 
-      return NextResponse.json(
+      return jsonResponse(
         {
-          error:
-            "Could not load business information.",
+          error: "Could not load business information.",
         },
-        {
-          status: 500,
-        }
+        500
       );
     }
 
@@ -262,14 +273,11 @@ No custom instructions have been provided.
         knowledgeError
       );
 
-      return NextResponse.json(
+      return jsonResponse(
         {
-          error:
-            "Could not load knowledge base.",
+          error: "Could not load knowledge base.",
         },
-        {
-          status: 500,
-        }
+        500
       );
     }
 
@@ -297,14 +305,11 @@ No custom instructions have been provided.
         conversationFindError
       );
 
-      return NextResponse.json(
+      return jsonResponse(
         {
-          error:
-            "Could not load conversation.",
+          error: "Could not load conversation.",
         },
-        {
-          status: 500,
-        }
+        500
       );
     }
 
@@ -324,8 +329,7 @@ No custom instructions have been provided.
         .insert({
           user_id: agentId,
           visitor_id: visitorId,
-          customer_name:
-            "Website Visitor",
+          customer_name: "Website Visitor",
         })
         .select("id")
         .single();
@@ -336,19 +340,15 @@ No custom instructions have been provided.
           conversationCreateError
         );
 
-        return NextResponse.json(
+        return jsonResponse(
           {
-            error:
-              "Could not create conversation.",
+            error: "Could not create conversation.",
           },
-          {
-            status: 500,
-          }
+          500
         );
       }
 
-      conversationId =
-        newConversation.id;
+      conversationId = newConversation.id;
     }
 
     // =========================================
@@ -360,13 +360,9 @@ No custom instructions have been provided.
     } = await supabaseAdmin
       .from("messages")
       .insert({
-        conversation_id:
-          conversationId,
-
+        conversation_id: conversationId,
         role: "user",
-
-        content:
-          message.trim(),
+        content: message.trim(),
       });
 
     if (customerMessageError) {
@@ -375,14 +371,11 @@ No custom instructions have been provided.
         customerMessageError
       );
 
-      return NextResponse.json(
+      return jsonResponse(
         {
-          error:
-            "Could not save customer message.",
+          error: "Could not save customer message.",
         },
-        {
-          status: 500,
-        }
+        500
       );
     }
 
@@ -423,8 +416,7 @@ No business information has been provided.
     // =========================================
 
     const knowledgeContext =
-      knowledge &&
-      knowledge.length > 0
+      knowledge && knowledge.length > 0
         ? knowledge
             .map(
               (item, index) => `
@@ -578,9 +570,7 @@ ${knowledgeContext}
     const response =
       await openai.responses.create({
         model: "gpt-5-mini",
-
         instructions,
-
         input: conversationTranscript,
       });
 
@@ -592,14 +582,11 @@ ${knowledgeContext}
       response.output_text?.trim();
 
     if (!reply) {
-      return NextResponse.json(
+      return jsonResponse(
         {
-          error:
-            "The AI did not return a response.",
+          error: "The AI did not return a response.",
         },
-        {
-          status: 500,
-        }
+        500
       );
     }
 
@@ -612,11 +599,8 @@ ${knowledgeContext}
     } = await supabaseAdmin
       .from("messages")
       .insert({
-        conversation_id:
-          conversationId,
-
+        conversation_id: conversationId,
         role: "assistant",
-
         content: reply,
       });
 
@@ -626,14 +610,12 @@ ${knowledgeContext}
         aiMessageError
       );
 
-      return NextResponse.json(
+      return jsonResponse(
         {
           error:
             "AI replied but the response could not be saved.",
         },
-        {
-          status: 500,
-        }
+        500
       );
     }
 
@@ -641,7 +623,7 @@ ${knowledgeContext}
     // Success
     // =========================================
 
-    return NextResponse.json({
+    return jsonResponse({
       reply,
       conversationId,
     });
@@ -651,14 +633,11 @@ ${knowledgeContext}
       error
     );
 
-    return NextResponse.json(
+    return jsonResponse(
       {
-        error:
-          "AI response failed. Please try again.",
+        error: "AI response failed. Please try again.",
       },
-      {
-        status: 500,
-      }
+      500
     );
   }
 }

@@ -2,6 +2,37 @@ import { createClient } from "@supabase/supabase-js";
 import { NextResponse } from "next/server";
 
 // =========================================
+// CORS
+// =========================================
+
+const corsHeaders = {
+  "Access-Control-Allow-Origin": "*",
+  "Access-Control-Allow-Methods": "GET, OPTIONS",
+  "Access-Control-Allow-Headers": "Content-Type",
+};
+
+function jsonResponse(
+  data: Record<string, unknown>,
+  status = 200
+) {
+  return NextResponse.json(data, {
+    status,
+    headers: corsHeaders,
+  });
+}
+
+// =========================================
+// OPTIONS /api/widget-settings
+// =========================================
+
+export async function OPTIONS() {
+  return new Response(null, {
+    status: 204,
+    headers: corsHeaders,
+  });
+}
+
+// =========================================
 // Supabase Server Client
 // =========================================
 
@@ -33,13 +64,11 @@ export async function GET(request: Request) {
     // =========================================
 
     if (!agentId) {
-      return NextResponse.json(
+      return jsonResponse(
         {
           error: "Agent ID is required.",
         },
-        {
-          status: 400,
-        }
+        400
       );
     }
 
@@ -68,14 +97,12 @@ export async function GET(request: Request) {
         error
       );
 
-      return NextResponse.json(
+      return jsonResponse(
         {
           error:
             "Could not load widget settings.",
         },
-        {
-          status: 500,
-        }
+        500
       );
     }
 
@@ -84,7 +111,7 @@ export async function GET(request: Request) {
     // =========================================
 
     if (!settings) {
-      return NextResponse.json({
+      return jsonResponse({
         agentName:
           "AI Support Assistant",
 
@@ -100,7 +127,7 @@ export async function GET(request: Request) {
     // Return Saved Settings
     // =========================================
 
-    return NextResponse.json({
+    return jsonResponse({
       agentName:
         settings.agent_name ||
         "AI Support Assistant",
@@ -119,14 +146,12 @@ export async function GET(request: Request) {
       error
     );
 
-    return NextResponse.json(
+    return jsonResponse(
       {
         error:
           "Could not load widget settings.",
       },
-      {
-        status: 500,
-      }
+      500
     );
   }
 }
