@@ -53,6 +53,26 @@ const supabaseAdmin = createClient(
 );
 
 // =========================================
+// Monthly Usage Helper
+// =========================================
+
+function getCurrentMonthStart() {
+  const now = new Date();
+
+  return new Date(
+    Date.UTC(
+      now.getUTCFullYear(),
+      now.getUTCMonth(),
+      1,
+      0,
+      0,
+      0,
+      0
+    )
+  );
+}
+
+// =========================================
 // POST /api/chat
 // =========================================
 
@@ -106,6 +126,19 @@ export async function POST(request: Request) {
       );
     }
 
+    // UUID format validation
+    const uuidRegex =
+      /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+    if (!uuidRegex.test(agentId)) {
+      return jsonResponse(
+        {
+          error: "Invalid Agent ID.",
+        },
+        400
+      );
+    }
+
     // =========================================
     // Validate Visitor ID
     // =========================================
@@ -122,8 +155,18 @@ export async function POST(request: Request) {
       );
     }
 
+    if (visitorId.length > 200) {
+      return jsonResponse(
+        {
+          error: "Visitor ID is too long.",
+        },
+        400
+      );
+    }
+
     // =========================================
     // Get AI Agent Settings
+    // Also confirms that this agent exists
     // =========================================
 
     const {
@@ -147,9 +190,39 @@ export async function POST(request: Request) {
 
       return jsonResponse(
         {
-          error: "Could not load AI Agent settings.",
+          error:
+            "Could not load AI Agent settings.",
         },
         500
+      );
+    }
+
+    // =========================================
+    // Confirm Agent Account Exists
+    // =========================================
+
+    const {
+      data: agentUser,
+      error: agentUserError,
+    } =
+      await supabaseAdmin.auth.admin.getUserById(
+        agentId
+      );
+
+    if (
+      agentUserError ||
+      !agentUser?.user
+    ) {
+      console.error(
+        "Agent user lookup error:",
+        agentUserError
+      );
+
+      return jsonResponse(
+        {
+          error: "AI Agent not found.",
+        },
+        404
       );
     }
 
@@ -163,10 +236,179 @@ export async function POST(request: Request) {
     ) {
       return jsonResponse(
         {
-          error: "This AI Agent is currently offline.",
+          error:
+            "This AI Agent is currently offline.",
           offline: true,
         },
         503
+      );
+    }
+
+    // =========================================
+    // Usage Limit
+    // =========================================
+
+    const currentMonthStart =
+      getCurrentMonthStart();
+
+    const {
+      data: usageData,
+      error: usageError,
+    } = await supabaseAdmin
+      .from("usage_limits")
+      .select(`
+        id,
+        plan,
+        monthly_limit,
+        messages_used,
+        period_start
+      `)
+      .eq("user_id", agentId)
+      .maybeSingle();
+
+    if (usageError) {
+      console.error(
+        "Usage query error:",
+        usageError
+      );
+
+      return jsonResponse(
+        {
+          error:
+            "Could not check AI usage.",
+        },
+        500
+      );
+    }
+
+    let usage = usageData;
+
+    // =========================================
+    // Create Usage Row for New Account
+    // =========================================
+
+    if (!usage) {
+      const {
+        data: newUsage,
+        error: usageCreateError,
+      } = await supabaseAdmin
+        .from("usage_limits")
+        .insert({
+          user_id: agentId,
+          plan: "free",
+          monthly_limit: 100,
+          messages_used: 0,
+          period_start:
+            currentMonthStart.toISOString(),
+        })
+        .select(`
+          id,
+          plan,
+          monthly_limit,
+          messages_used,
+          period_start
+        `)
+        .single();
+
+      if (usageCreateError) {
+        console.error(
+          "Usage create error:",
+          usageCreateError
+        );
+
+        return jsonResponse(
+          {
+            error:
+              "Could not create usage record.",
+          },
+          500
+        );
+      }
+
+      usage = newUsage;
+    }
+
+    // =========================================
+    // Automatic Monthly Reset
+    // =========================================
+
+    const savedPeriodStart =
+      new Date(usage.period_start);
+
+    const savedYear =
+      savedPeriodStart.getUTCFullYear();
+
+    const savedMonth =
+      savedPeriodStart.getUTCMonth();
+
+    const currentYear =
+      currentMonthStart.getUTCFullYear();
+
+    const currentMonth =
+      currentMonthStart.getUTCMonth();
+
+    if (
+      savedYear !== currentYear ||
+      savedMonth !== currentMonth
+    ) {
+      const {
+        data: resetUsage,
+        error: resetError,
+      } = await supabaseAdmin
+        .from("usage_limits")
+        .update({
+          messages_used: 0,
+          period_start:
+            currentMonthStart.toISOString(),
+          updated_at:
+            new Date().toISOString(),
+        })
+        .eq("user_id", agentId)
+        .select(`
+          id,
+          plan,
+          monthly_limit,
+          messages_used,
+          period_start
+        `)
+        .single();
+
+      if (resetError) {
+        console.error(
+          "Usage reset error:",
+          resetError
+        );
+
+        return jsonResponse(
+          {
+            error:
+              "Could not reset monthly usage.",
+          },
+          500
+        );
+      }
+
+      usage = resetUsage;
+    }
+
+    // =========================================
+    // Stop When Monthly Limit Is Reached
+    // =========================================
+
+    if (
+      usage.messages_used >=
+      usage.monthly_limit
+    ) {
+      return jsonResponse(
+        {
+          error:
+            "Monthly AI message limit reached.",
+          limitReached: true,
+          plan: usage.plan,
+          used: usage.messages_used,
+          limit: usage.monthly_limit,
+        },
+        429
       );
     }
 
@@ -200,7 +442,8 @@ Avoid unnecessary explanation.
     // =========================================
 
     const customInstructions =
-      agentSettings?.custom_instructions?.trim() || "";
+      agentSettings?.custom_instructions?.trim() ||
+      "";
 
     const customInstructionContext =
       customInstructions
@@ -243,7 +486,8 @@ No custom instructions have been provided.
 
       return jsonResponse(
         {
-          error: "Could not load business information.",
+          error:
+            "Could not load business information.",
         },
         500
       );
@@ -275,7 +519,8 @@ No custom instructions have been provided.
 
       return jsonResponse(
         {
-          error: "Could not load knowledge base.",
+          error:
+            "Could not load knowledge base.",
         },
         500
       );
@@ -307,7 +552,8 @@ No custom instructions have been provided.
 
       return jsonResponse(
         {
-          error: "Could not load conversation.",
+          error:
+            "Could not load conversation.",
         },
         500
       );
@@ -329,7 +575,8 @@ No custom instructions have been provided.
         .insert({
           user_id: agentId,
           visitor_id: visitorId,
-          customer_name: "Website Visitor",
+          customer_name:
+            "Website Visitor",
         })
         .select("id")
         .single();
@@ -342,13 +589,15 @@ No custom instructions have been provided.
 
         return jsonResponse(
           {
-            error: "Could not create conversation.",
+            error:
+              "Could not create conversation.",
           },
           500
         );
       }
 
-      conversationId = newConversation.id;
+      conversationId =
+        newConversation.id;
     }
 
     // =========================================
@@ -360,7 +609,8 @@ No custom instructions have been provided.
     } = await supabaseAdmin
       .from("messages")
       .insert({
-        conversation_id: conversationId,
+        conversation_id:
+          conversationId,
         role: "user",
         content: message.trim(),
       });
@@ -373,7 +623,8 @@ No custom instructions have been provided.
 
       return jsonResponse(
         {
-          error: "Could not save customer message.",
+          error:
+            "Could not save customer message.",
         },
         500
       );
@@ -470,8 +721,9 @@ No knowledge sources have been provided.
     // Put History in Correct Order
     // =========================================
 
-    const conversationHistory =
-      [...(history ?? [])].reverse();
+    const conversationHistory = [
+      ...(history ?? []),
+    ].reverse();
 
     // =========================================
     // Build Conversation Transcript
@@ -584,7 +836,8 @@ ${knowledgeContext}
     if (!reply) {
       return jsonResponse(
         {
-          error: "The AI did not return a response.",
+          error:
+            "The AI did not return a response.",
         },
         500
       );
@@ -599,7 +852,8 @@ ${knowledgeContext}
     } = await supabaseAdmin
       .from("messages")
       .insert({
-        conversation_id: conversationId,
+        conversation_id:
+          conversationId,
         role: "assistant",
         content: reply,
       });
@@ -620,12 +874,46 @@ ${knowledgeContext}
     }
 
     // =========================================
+    // Increment Monthly Usage
+    // Only after successful AI response
+    // =========================================
+
+    const {
+      error: incrementError,
+    } = await supabaseAdmin.rpc(
+      "increment_usage",
+      {
+        p_user_id: agentId,
+      }
+    );
+
+    if (incrementError) {
+      console.error(
+        "Usage increment error:",
+        incrementError
+      );
+    }
+
+    const newUsageCount =
+      usage.messages_used + 1;
+
+    // =========================================
     // Success
     // =========================================
 
     return jsonResponse({
       reply,
       conversationId,
+      usage: {
+        plan: usage.plan,
+        used: newUsageCount,
+        limit: usage.monthly_limit,
+        remaining: Math.max(
+          usage.monthly_limit -
+            newUsageCount,
+          0
+        ),
+      },
     });
   } catch (error) {
     console.error(
@@ -635,7 +923,8 @@ ${knowledgeContext}
 
     return jsonResponse(
       {
-        error: "AI response failed. Please try again.",
+        error:
+          "AI response failed. Please try again.",
       },
       500
     );
