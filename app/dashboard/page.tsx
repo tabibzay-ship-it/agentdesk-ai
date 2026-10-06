@@ -39,7 +39,9 @@ export default function DashboardPage() {
     useState("AI Support Assistant");
 
   const [welcomeMessage, setWelcomeMessage] =
-    useState("Hi! 👋 How can I help you today?");
+    useState(
+      "Hi! 👋 How can I help you today?"
+    );
 
   // =========================================
   // LOAD DASHBOARD
@@ -251,7 +253,10 @@ export default function DashboardPage() {
           .eq("user_id", user.id)
           .maybeSingle();
 
-        if (!agentError && agentSettings) {
+        if (
+          !agentError &&
+          agentSettings
+        ) {
           setAgentOnline(
             agentSettings.is_active === true
           );
@@ -359,11 +364,25 @@ export default function DashboardPage() {
             <button
               type="button"
               onClick={() =>
-                router.push("/conversations")
+                router.push(
+                  "/conversations"
+                )
               }
               className="w-full rounded-xl px-4 py-3 text-left text-slate-400 transition hover:bg-slate-800 hover:text-white"
             >
               Conversations
+            </button>
+
+            {/* Test Chat */}
+
+            <button
+              type="button"
+              onClick={() =>
+                router.push("/chat")
+              }
+              className="w-full rounded-xl px-4 py-3 text-left text-slate-400 transition hover:bg-slate-800 hover:text-white"
+            >
+              💬 Test Chat
             </button>
 
             {/* Website Widget */}
@@ -554,7 +573,6 @@ export default function DashboardPage() {
                 </p>
 
               </div>
-
             </div>
 
             {/* =====================================
@@ -615,7 +633,9 @@ export default function DashboardPage() {
                     <button
                       type="button"
                       onClick={() =>
-                        router.push("/knowledge")
+                        router.push(
+                          "/knowledge"
+                        )
                       }
                       className={
                         knowledgeCompleted
@@ -691,31 +711,43 @@ export default function DashboardPage() {
 
               <div className="rounded-2xl border border-slate-800 bg-slate-900 p-6">
 
-                <div className="flex items-center gap-3">
+                <div className="flex items-center justify-between gap-4">
 
-                  <div className="flex h-11 w-11 items-center justify-center rounded-full bg-blue-600 font-bold">
-                    AI
+                  <div className="flex items-center gap-3">
+
+                    <div className="flex h-11 w-11 items-center justify-center rounded-full bg-blue-600 font-bold">
+                      AI
+                    </div>
+
+                    <div>
+                      <h3 className="font-semibold">
+                        {agentName}
+                      </h3>
+
+                      <p
+                        className={`text-sm ${
+                          agentOnline
+                            ? "text-green-400"
+                            : "text-red-400"
+                        }`}
+                      >
+                        {agentOnline
+                          ? "● Online"
+                          : "● Offline"}
+                      </p>
+                    </div>
+
                   </div>
 
-                  <div>
-
-                    <h3 className="font-semibold">
-                      {agentName}
-                    </h3>
-
-                    <p
-                      className={`text-sm ${
-                        agentOnline
-                          ? "text-green-400"
-                          : "text-red-400"
-                      }`}
-                    >
-                      {agentOnline
-                        ? "● Online"
-                        : "● Offline"}
-                    </p>
-
-                  </div>
+                  <button
+                    type="button"
+                    onClick={() =>
+                      router.push("/chat")
+                    }
+                    className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold transition hover:bg-blue-500"
+                  >
+                    Open Chat
+                  </button>
 
                 </div>
 
@@ -728,31 +760,32 @@ export default function DashboardPage() {
                   <div className="mt-5 flex gap-2">
 
                     <input
-                      disabled
-                      placeholder="Your AI chat will appear here..."
-                      className="min-w-0 flex-1 rounded-xl border border-slate-800 bg-slate-900 px-4 py-3 text-sm outline-none"
+                      readOnly
+                      onClick={() =>
+                        router.push("/chat")
+                      }
+                      placeholder="Click here to open Test Chat..."
+                      className="min-w-0 flex-1 cursor-pointer rounded-xl border border-slate-800 bg-slate-900 px-4 py-3 text-sm outline-none"
                     />
 
                     <button
                       type="button"
-                      disabled
-                      className="rounded-xl bg-blue-600 px-5 text-sm font-semibold opacity-60"
+                      onClick={() =>
+                        router.push("/chat")
+                      }
+                      className="rounded-xl bg-blue-600 px-5 text-sm font-semibold transition hover:bg-blue-500"
                     >
-                      Send
+                      Chat
                     </button>
 
                   </div>
 
                 </div>
-
               </div>
 
             </div>
-
           </div>
-
         </section>
-
       </div>
     </main>
   );
