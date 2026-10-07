@@ -61,7 +61,7 @@ export async function POST(request: Request) {
     const body = await request.json();
 
     const message = body.message;
-    const agentId = body.agentId;
+    const publicAgentId = body.agentId;
     const visitorId = body.visitorId;
 
     // =====================================
@@ -93,12 +93,12 @@ export async function POST(request: Request) {
     }
 
     // =====================================
-    // VALIDATE AGENT ID
+    // VALIDATE PUBLIC AGENT ID
     // =====================================
 
     if (
-      !agentId ||
-      typeof agentId !== "string"
+      !publicAgentId ||
+      typeof publicAgentId !== "string"
     ) {
       return jsonResponse(
         {
@@ -111,7 +111,7 @@ export async function POST(request: Request) {
     const uuidRegex =
       /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
-    if (!uuidRegex.test(agentId)) {
+    if (!uuidRegex.test(publicAgentId)) {
       return jsonResponse(
         {
           error: "Invalid Agent ID.",
@@ -146,7 +146,8 @@ export async function POST(request: Request) {
     }
 
     // =====================================
-    // GET AGENT SETTINGS
+    // RESOLVE PUBLIC AGENT ID
+    // Public ID -> Internal User ID
     // =====================================
 
     const {
@@ -156,28 +157,46 @@ export async function POST(request: Request) {
       .from("agent_settings")
       .select(
         `
+        user_id,
+        public_agent_id,
         is_active,
         tone,
         custom_instructions
         `
       )
-      .eq("user_id", agentId)
+      .eq(
+        "public_agent_id",
+        publicAgentId
+      )
       .maybeSingle();
 
     if (agentSettingsError) {
       console.error(
-        "Agent settings query error:",
+        "Public Agent ID lookup error:",
         agentSettingsError
       );
 
       return jsonResponse(
         {
           error:
-            "Could not load AI Agent settings.",
+            "Could not load AI Agent.",
         },
         500
       );
     }
+
+    if (!agentSettings?.user_id) {
+      return jsonResponse(
+        {
+          error: "AI Agent not found.",
+        },
+        404
+      );
+    }
+
+    // From this point onward we use ONLY
+    // the private/internal Supabase user ID.
+    const agentId = agentSettings.user_id;
 
     // =====================================
     // CONFIRM ACCOUNT EXISTS
@@ -213,7 +232,6 @@ export async function POST(request: Request) {
     // =====================================
 
     if (
-      agentSettings &&
       agentSettings.is_active === false
     ) {
       return jsonResponse(
@@ -333,7 +351,7 @@ export async function POST(request: Request) {
     // =====================================
 
     const agentTone =
-      agentSettings?.tone ||
+      agentSettings.tone ||
       "professional";
 
     let toneInstruction = `
@@ -358,7 +376,7 @@ Avoid unnecessary explanation.
     // =====================================
 
     const customInstructions =
-      agentSettings?.custom_instructions?.trim() ||
+      agentSettings.custom_instructions?.trim() ||
       "";
 
     const customInstructionContext =
@@ -773,7 +791,6 @@ ${knowledgeContext}
 
     // =====================================
     // SUCCESS
-    // Usage already reserved atomically
     // =====================================
 
     return jsonResponse({

@@ -33,7 +33,7 @@ export async function OPTIONS() {
 }
 
 // =========================================
-// Supabase Server Client
+// SUPABASE ADMIN
 // =========================================
 
 const supabaseAdmin = createClient(
@@ -56,14 +56,14 @@ export async function GET(request: Request) {
     const { searchParams } =
       new URL(request.url);
 
-    const agentId =
+    const publicAgentId =
       searchParams.get("agentId");
 
-    // =========================================
-    // Validate Agent ID
-    // =========================================
+    // =====================================
+    // VALIDATE PUBLIC AGENT ID
+    // =====================================
 
-    if (!agentId) {
+    if (!publicAgentId) {
       return jsonResponse(
         {
           error: "Agent ID is required.",
@@ -72,13 +72,75 @@ export async function GET(request: Request) {
       );
     }
 
-    // =========================================
-    // Get Widget Settings
-    // =========================================
+    const uuidRegex =
+      /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+    if (!uuidRegex.test(publicAgentId)) {
+      return jsonResponse(
+        {
+          error: "Invalid Agent ID.",
+        },
+        400
+      );
+    }
+
+    // =====================================
+    // RESOLVE PUBLIC AGENT ID
+    // Public Agent ID -> Internal User ID
+    // =====================================
+
+    const {
+      data: agentSettings,
+      error: agentError,
+    } = await supabaseAdmin
+      .from("agent_settings")
+      .select(
+        `
+        user_id,
+        public_agent_id,
+        is_active
+        `
+      )
+      .eq(
+        "public_agent_id",
+        publicAgentId
+      )
+      .maybeSingle();
+
+    if (agentError) {
+      console.error(
+        "Public Agent ID lookup error:",
+        agentError
+      );
+
+      return jsonResponse(
+        {
+          error:
+            "Could not load AI Agent.",
+        },
+        500
+      );
+    }
+
+    if (!agentSettings?.user_id) {
+      return jsonResponse(
+        {
+          error: "AI Agent not found.",
+        },
+        404
+      );
+    }
+
+    const userId =
+      agentSettings.user_id;
+
+    // =====================================
+    // GET WIDGET SETTINGS
+    // =====================================
 
     const {
       data: settings,
-      error,
+      error: settingsError,
     } = await supabaseAdmin
       .from("widget_settings")
       .select(
@@ -88,13 +150,13 @@ export async function GET(request: Request) {
         primary_color
         `
       )
-      .eq("user_id", agentId)
+      .eq("user_id", userId)
       .maybeSingle();
 
-    if (error) {
+    if (settingsError) {
       console.error(
         "Widget settings error:",
-        error
+        settingsError
       );
 
       return jsonResponse(
@@ -106,9 +168,9 @@ export async function GET(request: Request) {
       );
     }
 
-    // =========================================
-    // Return Defaults If No Settings Exist
-    // =========================================
+    // =====================================
+    // RETURN DEFAULTS IF NO SETTINGS EXIST
+    // =====================================
 
     if (!settings) {
       return jsonResponse({
@@ -120,12 +182,15 @@ export async function GET(request: Request) {
 
         primaryColor:
           "#2563eb",
+
+        isActive:
+          agentSettings.is_active !== false,
       });
     }
 
-    // =========================================
-    // Return Saved Settings
-    // =========================================
+    // =====================================
+    // RETURN SAVED SETTINGS
+    // =====================================
 
     return jsonResponse({
       agentName:
@@ -139,6 +204,9 @@ export async function GET(request: Request) {
       primaryColor:
         settings.primary_color ||
         "#2563eb",
+
+      isActive:
+        agentSettings.is_active !== false,
     });
   } catch (error) {
     console.error(

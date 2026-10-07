@@ -30,6 +30,9 @@ export default function ChatPage() {
   const [sending, setSending] = useState(false);
 
   const [userId, setUserId] = useState("");
+  const [publicAgentId, setPublicAgentId] =
+    useState("");
+
   const [agentName, setAgentName] =
     useState("AI Support Assistant");
 
@@ -112,7 +115,7 @@ export default function ChatPage() {
         }
 
         // =====================================
-        // LOAD AGENT STATUS
+        // LOAD AGENT SETTINGS + PUBLIC ID
         // =====================================
 
         const {
@@ -120,7 +123,12 @@ export default function ChatPage() {
           error: agentError,
         } = await supabase
           .from("agent_settings")
-          .select("is_active")
+          .select(
+            `
+            is_active,
+            public_agent_id
+            `
+          )
           .eq("user_id", user.id)
           .maybeSingle();
 
@@ -129,11 +137,31 @@ export default function ChatPage() {
             "Agent settings error:",
             agentError
           );
+
+          setError(
+            "Could not load AI Agent settings."
+          );
         }
 
         if (agentSettings) {
           setAgentOnline(
             agentSettings.is_active === true
+          );
+
+          if (
+            agentSettings.public_agent_id
+          ) {
+            setPublicAgentId(
+              agentSettings.public_agent_id
+            );
+          } else {
+            setError(
+              "Public Agent ID is not available."
+            );
+          }
+        } else {
+          setError(
+            "AI Agent settings were not found."
           );
         }
 
@@ -241,8 +269,15 @@ export default function ChatPage() {
     if (
       !cleanMessage ||
       sending ||
-      !userId
+      !userId ||
+      !publicAgentId
     ) {
+      if (!publicAgentId) {
+        setError(
+          "Public Agent ID is not available."
+        );
+      }
+
       return;
     }
 
@@ -291,7 +326,7 @@ export default function ChatPage() {
 
           body: JSON.stringify({
             message: cleanMessage,
-            agentId: userId,
+            agentId: publicAgentId,
             visitorId: getVisitorId(),
           }),
         }
@@ -330,6 +365,12 @@ export default function ChatPage() {
 
           throw new Error(
             "Your AI Agent is currently offline."
+          );
+        }
+
+        if (data.rateLimited) {
+          throw new Error(
+            "Too many messages. Please wait a minute and try again."
           );
         }
 
@@ -677,12 +718,15 @@ export default function ChatPage() {
                       maxLength={2000}
                       disabled={
                         sending ||
-                        !agentOnline
+                        !agentOnline ||
+                        !publicAgentId
                       }
                       placeholder={
-                        agentOnline
-                          ? "Type your message..."
-                          : "AI Agent is offline"
+                        !publicAgentId
+                          ? "Public Agent ID unavailable"
+                          : agentOnline
+                            ? "Type your message..."
+                            : "AI Agent is offline"
                       }
                       className="min-w-0 flex-1 rounded-xl border border-slate-700 bg-slate-950 px-4 py-3 text-sm text-white outline-none transition placeholder:text-slate-600 focus:border-blue-500 disabled:cursor-not-allowed disabled:opacity-50"
                     />
@@ -692,7 +736,8 @@ export default function ChatPage() {
                       disabled={
                         sending ||
                         !message.trim() ||
-                        !agentOnline
+                        !agentOnline ||
+                        !publicAgentId
                       }
                       className="rounded-xl bg-blue-600 px-6 py-3 text-sm font-semibold transition hover:bg-blue-500 disabled:cursor-not-allowed disabled:opacity-50"
                     >

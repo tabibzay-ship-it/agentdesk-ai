@@ -9,70 +9,150 @@ export default function InstallPage() {
 
   const [loading, setLoading] = useState(true);
   const [userId, setUserId] = useState("");
+  const [publicAgentId, setPublicAgentId] =
+    useState("");
+
   const [copied, setCopied] = useState(false);
-  const [isInstalled, setIsInstalled] = useState(false);
-  const [verifying, setVerifying] = useState(false);
+  const [isInstalled, setIsInstalled] =
+    useState(false);
+
+  const [verifying, setVerifying] =
+    useState(false);
+
   const [message, setMessage] = useState("");
 
   const widgetUrl =
     "https://musical-sunflower-fb3106.netlify.app/widget.js";
 
+  // =========================================
+  // INSTALLATION CODE
+  // Uses PUBLIC Agent ID only
+  // =========================================
+
   const installCode = `<script
   src="${widgetUrl}"
-  data-agent-id="${userId}"
+  data-agent-id="${publicAgentId}"
   async>
 </script>`;
 
   // =========================================
-  // Load User + Installation Status
+  // LOAD PAGE
   // =========================================
 
   useEffect(() => {
     async function loadPage() {
-      const {
-        data: { user },
-        error: userError,
-      } = await supabase.auth.getUser();
+      try {
+        // =====================================
+        // AUTH USER
+        // =====================================
 
-      if (userError || !user) {
-        router.replace("/login");
-        return;
-      }
+        const {
+          data: { user },
+          error: userError,
+        } = await supabase.auth.getUser();
 
-      setUserId(user.id);
+        if (userError || !user) {
+          router.replace("/login");
+          return;
+        }
 
-      const {
-        data: settings,
-        error: settingsError,
-      } = await supabase
-        .from("widget_settings")
-        .select("is_installed")
-        .eq("user_id", user.id)
-        .maybeSingle();
+        setUserId(user.id);
 
-      if (!settingsError && settings) {
-        setIsInstalled(
-          settings.is_installed === true
+        // =====================================
+        // LOAD PUBLIC AGENT ID
+        // =====================================
+
+        const {
+          data: agentSettings,
+          error: agentError,
+        } = await supabase
+          .from("agent_settings")
+          .select("public_agent_id")
+          .eq("user_id", user.id)
+          .maybeSingle();
+
+        if (agentError) {
+          console.error(
+            "Public Agent ID load error:",
+            agentError
+          );
+
+          setMessage(
+            "Could not load Public Agent ID."
+          );
+        } else if (
+          agentSettings?.public_agent_id
+        ) {
+          setPublicAgentId(
+            agentSettings.public_agent_id
+          );
+        } else {
+          setMessage(
+            "Public Agent ID is not available."
+          );
+        }
+
+        // =====================================
+        // LOAD INSTALLATION STATUS
+        // =====================================
+
+        const {
+          data: settings,
+          error: settingsError,
+        } = await supabase
+          .from("widget_settings")
+          .select("is_installed")
+          .eq("user_id", user.id)
+          .maybeSingle();
+
+        if (settingsError) {
+          console.error(
+            "Widget installation status error:",
+            settingsError
+          );
+        }
+
+        if (!settingsError && settings) {
+          setIsInstalled(
+            settings.is_installed === true
+          );
+        }
+      } catch (error) {
+        console.error(
+          "Installation page load error:",
+          error
         );
-      }
 
-      setLoading(false);
+        setMessage(
+          "Could not load the installation page."
+        );
+      } finally {
+        setLoading(false);
+      }
     }
 
     loadPage();
   }, [router]);
 
   // =========================================
-  // Copy Installation Code
+  // COPY INSTALLATION CODE
   // =========================================
 
   async function handleCopy() {
+    if (!publicAgentId) {
+      setMessage(
+        "Public Agent ID is not available."
+      );
+      return;
+    }
+
     try {
       await navigator.clipboard.writeText(
         installCode
       );
 
       setCopied(true);
+      setMessage("");
 
       setTimeout(() => {
         setCopied(false);
@@ -90,7 +170,7 @@ export default function InstallPage() {
   }
 
   // =========================================
-  // Verify Installation
+  // VERIFY INSTALLATION
   // =========================================
 
   async function handleVerifyInstallation() {
@@ -104,14 +184,13 @@ export default function InstallPage() {
     try {
       /*
         IMPORTANT:
-        At this stage, the widget has already been
-        installed and tested by the user.
 
-        This button confirms that the user has
-        completed the installation process.
+        At this stage this button manually confirms
+        that the user has installed and tested the
+        website widget.
 
-        Later, this can be upgraded to automatic
-        domain verification.
+        Automatic domain verification can be added
+        later.
       */
 
       const {
@@ -137,7 +216,6 @@ export default function InstallPage() {
           "Could not verify installation. Please try again."
         );
 
-        setVerifying(false);
         return;
       }
 
@@ -163,7 +241,7 @@ export default function InstallPage() {
   }
 
   // =========================================
-  // Loading
+  // LOADING
   // =========================================
 
   if (loading) {
@@ -177,7 +255,7 @@ export default function InstallPage() {
   }
 
   // =========================================
-  // Page
+  // PAGE
   // =========================================
 
   return (
@@ -237,14 +315,12 @@ export default function InstallPage() {
                 Active
               </div>
             )}
-
           </div>
         </div>
 
         {/* Installation Code */}
 
         <div className="rounded-2xl border border-slate-800 bg-slate-900 p-6">
-
           <div className="flex flex-wrap items-center justify-between gap-4">
 
             <div>
@@ -261,27 +337,29 @@ export default function InstallPage() {
             <button
               type="button"
               onClick={handleCopy}
-              className="rounded-xl bg-blue-600 px-5 py-2.5 text-sm font-semibold transition hover:bg-blue-500"
+              disabled={!publicAgentId}
+              className="rounded-xl bg-blue-600 px-5 py-2.5 text-sm font-semibold transition hover:bg-blue-500 disabled:cursor-not-allowed disabled:opacity-50"
             >
               {copied
                 ? "Copied ✓"
                 : "Copy Code"}
             </button>
-
           </div>
 
           <div className="mt-5 overflow-x-auto rounded-xl border border-slate-800 bg-slate-950 p-5">
             <pre className="text-sm leading-7 text-slate-300">
-              <code>{installCode}</code>
+              <code>
+                {publicAgentId
+                  ? installCode
+                  : "Loading Public Agent ID..."}
+              </code>
             </pre>
           </div>
-
         </div>
 
         {/* Steps */}
 
         <div className="mt-6 rounded-2xl border border-slate-800 bg-slate-900 p-6">
-
           <h2 className="text-xl font-semibold">
             Installation Steps
           </h2>
@@ -355,14 +433,12 @@ export default function InstallPage() {
                 </p>
               </div>
             </div>
-
           </div>
         </div>
 
         {/* Verification */}
 
         <div className="mt-6 rounded-2xl border border-slate-800 bg-slate-900 p-6">
-
           <h2 className="text-xl font-semibold">
             Verify Installation
           </h2>
@@ -379,7 +455,9 @@ export default function InstallPage() {
               handleVerifyInstallation
             }
             disabled={
-              verifying || isInstalled
+              verifying ||
+              isInstalled ||
+              !publicAgentId
             }
             className={`mt-5 rounded-xl px-6 py-3 font-semibold transition ${
               isInstalled
@@ -390,8 +468,8 @@ export default function InstallPage() {
             {isInstalled
               ? "Installation Verified ✓"
               : verifying
-              ? "Verifying..."
-              : "Verify Installation"}
+                ? "Verifying..."
+                : "Verify Installation"}
           </button>
 
           {message && (
@@ -405,14 +483,12 @@ export default function InstallPage() {
               {message}
             </p>
           )}
-
         </div>
 
         {/* Done */}
 
         {isInstalled && (
           <div className="mt-6 rounded-2xl border border-green-900/50 bg-green-950/20 p-6">
-
             <h3 className="text-lg font-semibold text-green-400">
               🎉 Your widget is installed!
             </h3>
@@ -431,10 +507,8 @@ export default function InstallPage() {
             >
               Go to Dashboard
             </button>
-
           </div>
         )}
-
       </div>
     </main>
   );
