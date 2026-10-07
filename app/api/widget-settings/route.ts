@@ -3,7 +3,6 @@ import { NextResponse } from "next/server";
 import {
   buildCorsHeaders,
   getCorsOrigin,
-  isOpaqueOrigin,
   isRequestOriginAllowed,
   parseRequestOrigin,
 } from "@/lib/origin-security";
@@ -37,8 +36,7 @@ export async function OPTIONS(request: Request) {
 
   if (
     originHeader !== null &&
-    !requestOrigin &&
-    !isOpaqueOrigin(originHeader)
+    !requestOrigin
   ) {
     return createJsonResponse(
       {
@@ -83,8 +81,7 @@ export async function GET(request: Request) {
 
   if (
     originHeader !== null &&
-    !requestOrigin &&
-    !isOpaqueOrigin(originHeader)
+    !requestOrigin
   ) {
     return createJsonResponse(
       {
@@ -161,10 +158,7 @@ export async function GET(request: Request) {
       .maybeSingle();
 
     if (agentError) {
-      console.error(
-        "Public Agent ID lookup error:",
-        agentError
-      );
+      console.error("Public Agent ID lookup failed.");
 
       return jsonResponse(
         {
@@ -224,10 +218,7 @@ export async function GET(request: Request) {
       .maybeSingle();
 
     if (settingsError) {
-      console.error(
-        "Widget settings error:",
-        settingsError
-      );
+      console.error("Widget settings lookup failed.");
 
       return jsonResponse(
         {
@@ -264,25 +255,22 @@ export async function GET(request: Request) {
 
     return jsonResponse({
       agentName:
-        settings.agent_name ||
+        (typeof settings.agent_name === "string" && settings.agent_name.slice(0, 100)) ||
         "AI Support Assistant",
 
       welcomeMessage:
-        settings.welcome_message ||
+        (typeof settings.welcome_message === "string" && settings.welcome_message.slice(0, 1000)) ||
         "Hi! 👋 How can I help you today?",
 
       primaryColor:
-        settings.primary_color ||
+        (typeof settings.primary_color === "string" && /^#[0-9a-f]{6}$/i.test(settings.primary_color) && settings.primary_color) ||
         "#2563eb",
 
       isActive:
         agentSettings.is_active !== false,
     });
-  } catch (error) {
-    console.error(
-      "Widget settings API error:",
-      error
-    );
+  } catch {
+    console.error("Widget settings request failed.");
 
     return jsonResponse(
       {

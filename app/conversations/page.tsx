@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { supabase } from "../../lib/supabase";
 
@@ -39,12 +39,25 @@ export default function ConversationsPage() {
 
   const [error, setError] =
     useState("");
+  const messageRequest = useRef(0);
 
   const loadMessages = useCallback(async (
     conversationId: string
   ) => {
+    const requestNumber = ++messageRequest.current;
     setMessagesLoading(true);
+    setMessages([]);
     setError("");
+
+    const { data: { user }, error: authError } = await supabase.auth.getUser();
+    if (requestNumber !== messageRequest.current) return;
+    if (authError || !user) {
+      setConversations([]);
+      setSelectedConversation(null);
+      setMessagesLoading(false);
+      router.replace("/login");
+      return;
+    }
 
     const {
       data,
@@ -56,16 +69,20 @@ export default function ConversationsPage() {
         id,
         role,
         content,
-        created_at
+        created_at,
+        conversations!inner(user_id)
         `
       )
       .eq(
         "conversation_id",
         conversationId
       )
+      .eq("conversations.user_id", user.id)
       .order("created_at", {
         ascending: true,
       });
+
+    if (requestNumber !== messageRequest.current) return;
 
     if (messagesError) {
       console.error(
@@ -87,7 +104,7 @@ export default function ConversationsPage() {
     );
 
     setMessagesLoading(false);
-  }, []);
+  }, [router]);
 
   // =========================================
   // Load Conversations

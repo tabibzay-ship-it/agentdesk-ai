@@ -31,10 +31,11 @@
       "data-agent-id"
     ) || "";
 
-  if (!agentId) {
+  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(agentId)) {
     console.error(
-      "AgentDesk AI: data-agent-id is missing."
+      "AgentDesk AI: a valid data-agent-id is required."
     );
+    window.AgentDeskAIWidgetLoaded = false;
     return;
   }
 
@@ -52,32 +53,27 @@
   // Visitor ID
   // =========================================
 
-  let visitorId =
-    localStorage.getItem(
-      "agentdesk_visitor_id"
-    );
+  const visitorStorageKey = `agentdesk_visitor_${agentId}`;
+  const visitorIdPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+  let visitorId;
+  try { visitorId = localStorage.getItem(visitorStorageKey); } catch { /* Storage can be disabled. */ }
 
-  if (!visitorId) {
-    if (
-      typeof crypto !== "undefined" &&
-      typeof crypto.randomUUID === "function"
-    ) {
-      visitorId =
-        crypto.randomUUID();
+  if (!visitorIdPattern.test(visitorId || "")) {
+    if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
+      visitorId = crypto.randomUUID();
+    } else if (typeof crypto !== "undefined" && typeof crypto.getRandomValues === "function") {
+      // Cryptographic UUIDs also work on HTTP pages where randomUUID is absent.
+      const bytes = crypto.getRandomValues(new Uint8Array(16));
+      bytes[6] = (bytes[6] & 15) | 64;
+      bytes[8] = (bytes[8] & 63) | 128;
+      const hex = Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0")).join("");
+      visitorId = `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
     } else {
-      visitorId =
-        "visitor-" +
-        Date.now() +
-        "-" +
-        Math.random()
-          .toString(36)
-          .substring(2, 12);
+      console.error("AgentDesk AI: secure visitor IDs are unavailable in this browser.");
+      window.AgentDeskAIWidgetLoaded = false;
+      return;
     }
-
-    localStorage.setItem(
-      "agentdesk_visitor_id",
-      visitorId
-    );
+    try { localStorage.setItem(visitorStorageKey, visitorId); } catch { /* Keep an in-memory visit. */ }
   }
 
   // =========================================
@@ -108,7 +104,8 @@
         await fetch(
           `${baseUrl}/api/widget-settings?agentId=${encodeURIComponent(
             agentId
-          )}`
+          )}`,
+          { credentials: "omit" }
         );
 
       if (!response.ok) {
@@ -122,15 +119,15 @@
 
       return {
         agentName:
-          data.agentName ||
+          (typeof data.agentName === "string" && data.agentName.slice(0, 100)) ||
           defaultSettings.agentName,
 
         welcomeMessage:
-          data.welcomeMessage ||
+          (typeof data.welcomeMessage === "string" && data.welcomeMessage.slice(0, 1000)) ||
           defaultSettings.welcomeMessage,
 
         primaryColor:
-          data.primaryColor ||
+          (typeof data.primaryColor === "string" && /^#[0-9a-f]{6}$/i.test(data.primaryColor) && data.primaryColor) ||
           defaultSettings.primaryColor,
 
         isActive:
@@ -886,6 +883,7 @@
             `${baseUrl}/api/chat`,
             {
               method: "POST",
+              credentials: "omit",
 
               headers: {
                 "Content-Type":

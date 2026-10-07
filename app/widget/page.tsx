@@ -40,7 +40,7 @@ export default function WidgetPage() {
         settingsError &&
         settingsError.code !== "PGRST116"
       ) {
-        console.error(settingsError);
+        setError("Could not load widget settings. Please try again.");
       }
 
       if (data) {
@@ -51,7 +51,7 @@ export default function WidgetPage() {
             "Hi! 👋 How can I help you today?"
         );
 
-        setPrimaryColor(data.primary_color ?? "#2563eb");
+        setPrimaryColor(typeof data.primary_color === "string" && /^#[0-9a-f]{6}$/i.test(data.primary_color) ? data.primary_color : "#2563eb");
       }
 
       setLoading(false);
@@ -68,6 +68,13 @@ export default function WidgetPage() {
     setSaving(true);
     setMessage("");
     setError("");
+
+    if (!agentName.trim() || agentName.trim().length > 100 || !welcomeMessage.trim() ||
+        welcomeMessage.trim().length > 1000 || !/^#[0-9a-f]{6}$/i.test(primaryColor)) {
+      setError("Use an agent name up to 100 characters, a welcome message up to 1,000 characters, and a six-digit hex color such as #2563eb.");
+      setSaving(false);
+      return;
+    }
 
     const {
       data: { user },
@@ -95,7 +102,7 @@ export default function WidgetPage() {
         .maybeSingle();
 
     if (checkError) {
-      setError(checkError.message);
+      setError("Could not load widget settings. Please try again.");
       setSaving(false);
       return;
     }
@@ -118,7 +125,7 @@ export default function WidgetPage() {
     }
 
     if (saveError) {
-      setError(saveError.message);
+      setError("Could not save widget settings. Please try again.");
       setSaving(false);
       return;
     }
@@ -200,6 +207,7 @@ export default function WidgetPage() {
                 <input
                   type="text"
                   required
+                  maxLength={100}
                   value={agentName}
                   onChange={(e) =>
                     setAgentName(e.target.value)
@@ -217,6 +225,7 @@ export default function WidgetPage() {
 
                 <textarea
                   required
+                  maxLength={1000}
                   value={welcomeMessage}
                   onChange={(e) =>
                     setWelcomeMessage(e.target.value)

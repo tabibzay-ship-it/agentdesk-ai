@@ -3,6 +3,7 @@
 import { FormEvent, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase";
+import { isBoundedText, isHttpWebsite, isValidEmail } from "@/lib/client-security";
 
 export default function BusinessPage() {
   const router = useRouter();
@@ -32,7 +33,7 @@ export default function BusinessPage() {
       // که مخکې معلومات موجود وي، فورم ته یې راوړه
       const { data } = await supabase
         .from("business_profiles")
-        .select("*")
+        .select("business_name, description, email, phone, website, address")
         .eq("user_id", user.id)
         .maybeSingle();
 
@@ -53,6 +54,15 @@ export default function BusinessPage() {
 
   async function handleSubmit(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
+    if (loading) return;
+
+    if (!businessName.trim() || !isBoundedText(businessName.trim(), 200) ||
+        !isBoundedText(description.trim(), 20000) || !isBoundedText(phone.trim(), 100) ||
+        !isBoundedText(address.trim(), 2000) || !isHttpWebsite(website.trim()) ||
+        (email.trim() && !isValidEmail(email.trim()))) {
+      setMessage("Please check the business details and use a full http:// or https:// website URL.");
+      return;
+    }
 
     setLoading(true);
     setMessage("");
@@ -87,7 +97,7 @@ export default function BusinessPage() {
       .maybeSingle();
 
     if (checkError) {
-      setMessage(checkError.message);
+      setMessage("Could not load your business information. Please try again.");
       setLoading(false);
       return;
     }
@@ -110,7 +120,7 @@ export default function BusinessPage() {
     }
 
     if (error) {
-      setMessage(error.message);
+      setMessage("Could not save your business information. Please check your details and try again.");
       setLoading(false);
       return;
     }
@@ -163,6 +173,7 @@ export default function BusinessPage() {
             <input
               type="text"
               required
+              maxLength={200}
               value={businessName}
               onChange={(e) => setBusinessName(e.target.value)}
               placeholder="Example Company"
@@ -180,6 +191,7 @@ export default function BusinessPage() {
               onChange={(e) => setDescription(e.target.value)}
               placeholder="Tell us about your business..."
               rows={5}
+              maxLength={20000}
               className="w-full resize-none rounded-xl border border-slate-700 bg-[#020817] px-4 py-3 outline-none focus:border-blue-500"
             />
           </div>
@@ -190,6 +202,7 @@ export default function BusinessPage() {
 
               <input
                 type="email"
+                maxLength={254}
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
                 placeholder="support@company.com"
@@ -203,6 +216,7 @@ export default function BusinessPage() {
               <input
                 type="text"
                 value={phone}
+                maxLength={100}
                 onChange={(e) => setPhone(e.target.value)}
                 placeholder="+1 000 000 0000"
                 className="w-full rounded-xl border border-slate-700 bg-[#020817] px-4 py-3 outline-none focus:border-blue-500"
@@ -215,6 +229,7 @@ export default function BusinessPage() {
               <input
                 type="text"
                 value={website}
+                maxLength={2048}
                 onChange={(e) => setWebsite(e.target.value)}
                 placeholder="https://company.com"
                 className="w-full rounded-xl border border-slate-700 bg-[#020817] px-4 py-3 outline-none focus:border-blue-500"
@@ -227,6 +242,7 @@ export default function BusinessPage() {
               <input
                 type="text"
                 value={address}
+                maxLength={2000}
                 onChange={(e) => setAddress(e.target.value)}
                 placeholder="City, Country"
                 className="w-full rounded-xl border border-slate-700 bg-[#020817] px-4 py-3 outline-none focus:border-blue-500"

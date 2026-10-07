@@ -1,199 +1,9 @@
+import "server-only";
 import OpenAI from "openai";
 import { createClient } from "@supabase/supabase-js";
 import { NextResponse } from "next/server";
-
-// =========================================
-// CORS
-// =========================================
-
-const baseCorsHeaders = {
-  "Access-Control-Allow-Methods": "POST, OPTIONS",
-  "Access-Control-Allow-Headers": "Content-Type",
-};
-
-type ParsedOrigin = {
-  origin: string;
-  hostname: string;
-};
-
-function normalizeHostname(hostname: string) {
-  return hostname
-    .trim()
-    .toLowerCase()
-    .replace(/\.+$/, "");
-}
-
-function parseRequestOrigin(
-  originHeader: string | null
-): ParsedOrigin | null {
-  if (!originHeader) {
-    return null;
-  }
-
-  const value = originHeader.trim();
-
-  if (
-    !value ||
-    value === "null" ||
-    !/^https?:\/\/[^\s/?#\\]+$/i.test(value)
-  ) {
-    return null;
-  }
-
-  try {
-    const url = new URL(value);
-
-    if (
-      (url.protocol !== "http:" &&
-        url.protocol !== "https:") ||
-      url.username ||
-      url.password ||
-      url.pathname !== "/" ||
-      url.search ||
-      url.hash
-    ) {
-      return null;
-    }
-
-    const hostname = normalizeHostname(url.hostname);
-
-    if (!hostname || hostname.includes("*")) {
-      return null;
-    }
-
-    return {
-      origin: url.origin,
-      hostname,
-    };
-  } catch {
-    return null;
-  }
-}
-
-function normalizeAllowedDomain(
-  entry: string
-): string | null {
-  const value = entry.trim();
-
-  if (!value) {
-    return null;
-  }
-
-  try {
-    const hasProtocol =
-      /^[a-z][a-z\d+.-]*:\/\//i.test(value);
-    const url = new URL(
-      hasProtocol ? value : `https://${value}`
-    );
-
-    if (
-      (url.protocol !== "http:" &&
-        url.protocol !== "https:") ||
-      url.username ||
-      url.password
-    ) {
-      return null;
-    }
-
-    const hostname = normalizeHostname(url.hostname);
-
-    if (!hostname || hostname.includes("*")) {
-      return null;
-    }
-
-    return hostname;
-  } catch {
-    return null;
-  }
-}
-
-function isLoopbackHostname(hostname: string) {
-  const value = normalizeHostname(hostname);
-
-  return (
-    value === "localhost" ||
-    value === "127.0.0.1" ||
-    value === "::1" ||
-    value === "[::1]"
-  );
-}
-
-function isRequestOriginAllowed(
-  request: Request,
-  requestOrigin: ParsedOrigin | null,
-  allowedDomains: unknown
-) {
-  const configuredEntries = Array.isArray(allowedDomains)
-    ? allowedDomains.filter(
-        (entry): entry is string =>
-          typeof entry === "string" &&
-          entry.trim().length > 0
-      )
-    : [];
-
-  // Rollout compatibility: an empty allowlist keeps the agent public.
-  // Enforcement starts as soon as at least one non-empty entry is saved.
-  if (configuredEntries.length === 0) {
-    return true;
-  }
-
-  // Once enforcement is active, browser requests must have a valid Origin.
-  if (!requestOrigin) {
-    return false;
-  }
-
-  let requestUrl: URL;
-
-  try {
-    requestUrl = new URL(request.url);
-  } catch {
-    return false;
-  }
-
-  // AgentDesk Test Chat is trusted when it calls its own API origin.
-  if (requestOrigin.origin === requestUrl.origin) {
-    return true;
-  }
-
-  // Cross-port localhost Test Chat is only allowed in local development,
-  // and only when both the app and API are running on loopback hosts.
-  if (
-    process.env.NODE_ENV !== "production" &&
-    isLoopbackHostname(requestOrigin.hostname) &&
-    isLoopbackHostname(requestUrl.hostname)
-  ) {
-    return true;
-  }
-
-  const allowedHostnames = new Set(
-    configuredEntries
-      .map(normalizeAllowedDomain)
-      .filter(
-        (hostname): hostname is string =>
-          hostname !== null
-      )
-  );
-
-  // Exact hostname comparison intentionally does not include subdomains.
-  // A non-empty list containing only invalid entries therefore fails closed.
-  return allowedHostnames.has(requestOrigin.hostname);
-}
-
-function buildCorsHeaders(
-  allowedOrigin: string | null
-) {
-  const headers: Record<string, string> = {
-    ...baseCorsHeaders,
-    Vary: "Origin",
-  };
-
-  if (allowedOrigin) {
-    headers["Access-Control-Allow-Origin"] =
-      allowedOrigin;
-  }
-
-  return headers;
-}
+import { buildCorsHeaders, getCorsOrigin, parseRequestOrigin, isRequestOriginAllowed } from "@/lib/origin-security";
+import { BodyError, isVisitorId, readJsonObject } from "@/lib/request-security";
 
 function createJsonResponse(
   data: Record<string, unknown>,
@@ -202,7 +12,7 @@ function createJsonResponse(
 ) {
   return NextResponse.json(data, {
     status,
-    headers: buildCorsHeaders(allowedOrigin),
+    headers: { ...buildCorsHeaders(allowedOrigin, "POST, OPTIONS"), "Cache-Control": "no-store" },
   });
 }
 
@@ -210,13 +20,11 @@ export async function OPTIONS(request: Request) {
   const originHeader = request.headers.get("origin");
   const requestOrigin =
     parseRequestOrigin(originHeader);
-  const isOpaqueOrigin =
-    originHeader?.trim() === "null";
+
 
   if (
     originHeader !== null &&
-    !requestOrigin &&
-    !isOpaqueOrigin
+    !requestOrigin
   ) {
     return createJsonResponse(
       {
@@ -229,14 +37,9 @@ export async function OPTIONS(request: Request) {
 
   // The agent ID is in the POST body, which browsers do not send during
   // preflight. POST performs the authoritative per-agent allowlist check.
-  // An opaque `null` origin may proceed only to POST, where an active
-  // allowlist rejects it; this preserves empty-allowlist rollout behavior.
   return new Response(null, {
     status: 204,
-    headers: buildCorsHeaders(
-      requestOrigin?.origin ??
-        (isOpaqueOrigin ? "null" : null)
-    ),
+    headers: buildCorsHeaders(requestOrigin?.origin ?? null, "POST, OPTIONS"),
   });
 }
 
@@ -246,6 +49,8 @@ export async function OPTIONS(request: Request) {
 
 const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
+  timeout: 45_000,
+  maxRetries: 0,
 });
 
 // =========================================
@@ -272,13 +77,11 @@ export async function POST(request: Request) {
   const requestOrigin = parseRequestOrigin(
     originHeader
   );
-  const opaqueOrigin =
-    originHeader?.trim() === "null";
+
 
   if (
     originHeader !== null &&
-    !requestOrigin &&
-    !opaqueOrigin
+    !requestOrigin
   ) {
     return createJsonResponse(
       {
@@ -289,16 +92,14 @@ export async function POST(request: Request) {
     );
   }
 
-  const corsOrigin =
-    requestOrigin?.origin ??
-    (opaqueOrigin ? "null" : null);
+  const corsOrigin = getCorsOrigin(originHeader, requestOrigin);
   const jsonResponse = (
     data: Record<string, unknown>,
     status = 200
   ) => createJsonResponse(data, status, corsOrigin);
 
   try {
-    const body = await request.json();
+    const body = await readJsonObject(request);
 
     const message = body.message;
     const publicAgentId = body.agentId;
@@ -323,7 +124,7 @@ export async function POST(request: Request) {
 
     const cleanMessage = message.trim();
 
-    if (cleanMessage.length > 2000) {
+    if (cleanMessage.length > 2000 || cleanMessage.includes("\0")) {
       return jsonResponse(
         {
           error: "Message is too long.",
@@ -376,10 +177,10 @@ export async function POST(request: Request) {
       );
     }
 
-    if (visitorId.length > 200) {
+    if (!isVisitorId(visitorId)) {
       return jsonResponse(
         {
-          error: "Visitor ID is too long.",
+          error: "Invalid Visitor ID. Please reload the widget.",
         },
         400
       );
@@ -408,10 +209,7 @@ export async function POST(request: Request) {
       .maybeSingle();
 
     if (agentSettingsError) {
-      console.error(
-        "Public Agent ID lookup error:",
-        agentSettingsError
-      );
+      console.error("Public Agent ID lookup error:");
 
       return jsonResponse(
         {
@@ -471,10 +269,7 @@ export async function POST(request: Request) {
       agentUserError ||
       !agentUser?.user
     ) {
-      console.error(
-        "Agent user lookup error:",
-        agentUserError
-      );
+      console.error("Agent user lookup error:");
 
       return jsonResponse(
         {
@@ -488,7 +283,7 @@ export async function POST(request: Request) {
     // CHECK AGENT STATUS
     // =====================================
 
-    if (agentSettings.is_active === false) {
+    if (agentSettings.is_active !== true) {
       return jsonResponse(
         {
           error:
@@ -504,6 +299,20 @@ export async function POST(request: Request) {
     // 10 requests / 60 seconds
     // =====================================
 
+    // An account bucket is independent of the visitor capability: creating
+    // fresh visitor IDs cannot bypass this distributed burst limit.
+    const { data: accountAllowed, error: accountLimitError } = await supabaseAdmin.rpc(
+      "check_chat_rate_limit",
+      { p_agent_id: agentId, p_visitor_id: "__agent_burst__", p_limit: 60, p_window_seconds: 60 }
+    );
+    if (accountLimitError) {
+      console.error("Account rate limit check failed.");
+      return jsonResponse({ error: "Could not check chat rate limit." }, 503);
+    }
+    if (accountAllowed !== true) {
+      return jsonResponse({ error: "Too many messages. Please try again later.", rateLimited: true, retryAfter: 60 }, 429);
+    }
+
     const {
       data: rateAllowed,
       error: rateLimitError,
@@ -518,10 +327,7 @@ export async function POST(request: Request) {
     );
 
     if (rateLimitError) {
-      console.error(
-        "Rate limit check error:",
-        rateLimitError
-      );
+      console.error("Rate limit check error:");
 
       return jsonResponse(
         {
@@ -552,17 +358,14 @@ export async function POST(request: Request) {
       data: usageResult,
       error: usageError,
     } = await supabaseAdmin.rpc(
-      "reserve_ai_usage",
+      "security_reserve_ai_usage",
       {
         p_user_id: agentId,
       }
     );
 
     if (usageError) {
-      console.error(
-        "Atomic usage reservation error:",
-        usageError
-      );
+      console.error("Atomic usage reservation error:");
 
       return jsonResponse(
         {
@@ -599,6 +402,11 @@ export async function POST(request: Request) {
         },
         429
       );
+    }
+
+    if (typeof usage.reservation_id !== "string" || !uuidRegex.test(usage.reservation_id)) {
+      console.error("Invalid usage reservation result.");
+      return jsonResponse({ error: "Could not reserve AI usage safely." }, 503);
     }
 
     // =====================================
@@ -638,7 +446,7 @@ Avoid unnecessary explanation.
       // ===================================
 
       const customInstructions =
-        agentSettings.custom_instructions?.trim() ||
+        agentSettings.custom_instructions?.trim().slice(0, 8_000) ||
         "";
 
       const customInstructionContext =
@@ -677,10 +485,7 @@ No custom instructions have been provided.
         .maybeSingle();
 
       if (businessError) {
-        console.error(
-          "Business query error:",
-          businessError
-        );
+        console.error("Business query error:");
 
         return jsonResponse(
           {
@@ -709,13 +514,11 @@ No custom instructions have been provided.
         .eq("user_id", agentId)
         .order("created_at", {
           ascending: true,
-        });
+        })
+        .limit(100);
 
       if (knowledgeError) {
-        console.error(
-          "Knowledge query error:",
-          knowledgeError
-        );
+        console.error("Knowledge query error:");
 
         return jsonResponse(
           {
@@ -745,10 +548,7 @@ No custom instructions have been provided.
         .maybeSingle();
 
       if (conversationFindError) {
-        console.error(
-          "Conversation lookup error:",
-          conversationFindError
-        );
+        console.error("Conversation lookup error:");
 
         return jsonResponse(
           {
@@ -782,10 +582,7 @@ No custom instructions have been provided.
           .single();
 
         if (conversationCreateError) {
-          console.error(
-            "Conversation create error:",
-            conversationCreateError
-          );
+          console.error("Conversation create error:");
 
           return jsonResponse(
             {
@@ -816,10 +613,7 @@ No custom instructions have been provided.
         });
 
       if (customerMessageError) {
-        console.error(
-          "Customer message save error:",
-          customerMessageError
-        );
+        console.error("Customer message save error:");
 
         return jsonResponse(
           {
@@ -839,22 +633,22 @@ No custom instructions have been provided.
 BUSINESS INFORMATION
 
 Business name:
-${business.business_name || "Not provided"}
+${String(business.business_name || "Not provided").slice(0, 500)}
 
 Description:
-${business.description || "Not provided"}
+${String(business.description || "Not provided").slice(0, 8_000)}
 
 Support email:
-${business.email || "Not provided"}
+${String(business.email || "Not provided").slice(0, 320)}
 
 Phone:
-${business.phone || "Not provided"}
+${String(business.phone || "Not provided").slice(0, 100)}
 
 Website:
-${business.website || "Not provided"}
+${String(business.website || "Not provided").slice(0, 2_048)}
 
 Address:
-${business.address || "Not provided"}
+${String(business.address || "Not provided").slice(0, 2_000)}
 `
         : `
 BUSINESS INFORMATION
@@ -874,13 +668,13 @@ No business information has been provided.
 KNOWLEDGE SOURCE ${index + 1}
 
 Title:
-${item.title || "Untitled"}
+${String(item.title || "Untitled").slice(0, 300)}
 
 Information:
-${item.content || "No information provided."}
+${String(item.content || "No information provided.").slice(0, 12_000)}
 `
               )
-              .join("\n")
+              .join("\n").slice(0, 64_000)
           : `
 KNOWLEDGE BASE
 
@@ -913,10 +707,7 @@ No knowledge sources have been provided.
         .limit(20);
 
       if (historyError) {
-        console.error(
-          "History load error:",
-          historyError
-        );
+        console.error("History load error:");
       }
 
       const conversationHistory = [
@@ -931,9 +722,9 @@ No knowledge sources have been provided.
                 ? "Assistant"
                 : "Customer";
 
-            return `${speaker}: ${item.content}`;
+            return `${speaker}: ${String(item.content).slice(0, 8_000)}`;
           })
-          .join("\n\n");
+          .join("\n\n").slice(-32_000);
 
       // ===================================
       // AI INSTRUCTIONS
@@ -1003,6 +794,8 @@ ${knowledgeContext}
           model: "gpt-5-mini",
           instructions,
           input: conversationTranscript,
+          max_output_tokens: 2_000,
+          store: false,
         });
 
       // ===================================
@@ -1038,10 +831,7 @@ ${knowledgeContext}
         });
 
       if (aiMessageError) {
-        console.error(
-          "AI message save error:",
-          aiMessageError
-        );
+        console.error("AI message save error:");
 
         return jsonResponse(
           {
@@ -1079,27 +869,21 @@ ${knowledgeContext}
         const {
           error: releaseError,
         } = await supabaseAdmin.rpc(
-          "release_ai_usage",
+          "security_release_ai_usage",
           {
             p_user_id: agentId,
-            p_period_start:
-              usage.period_start,
+            p_reservation_id: usage.reservation_id,
           }
         );
 
         if (releaseError) {
-          console.error(
-            "Usage rollback error:",
-            releaseError
-          );
+          console.error("Usage rollback error:");
         }
       }
     }
   } catch (error) {
-    console.error(
-      "AgentDesk AI chat error:",
-      error
-    );
+    if (error instanceof BodyError) return jsonResponse({ error: error.message, code: error.code }, error.status);
+    console.error("AgentDesk AI chat error:");
 
     return jsonResponse(
       {

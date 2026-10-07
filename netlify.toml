@@ -1,0 +1,7 @@
+# Public widget assets are served directly by Netlify, outside Next.js handlers.
+# Keep customer script embedding available; do not add CORP same-origin or COEP.
+[[headers]]
+  for = "/widget.js"
+  [headers.values]
+    X-Content-Type-Options = "nosniff"
+    Referrer-Policy = "strict-origin-when-cross-origin"

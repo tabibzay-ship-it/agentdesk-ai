@@ -24,7 +24,7 @@ export function parseRequestOrigin(
   if (
     !value ||
     value === "null" ||
-    !/^https?:\/\/[^\s/?#\\]+$/i.test(value)
+    !/^https?:\/\/[^\s\u0000-\u001f\u007f/?#\\]+$/i.test(value)
   ) {
     return null;
   }
@@ -64,7 +64,7 @@ function normalizeAllowedDomain(
 ): string | null {
   const value = entry.trim();
 
-  if (!value) {
+  if (!value || /[\s\u0000-\u001f\u007f\\]/.test(value)) {
     return null;
   }
 
@@ -107,11 +107,33 @@ function isLoopbackHostname(hostname: string) {
   );
 }
 
+export function getTrustedApplicationOrigin(request: Request): ParsedOrigin | null {
+  const configured = process.env.AGENTDESK_APP_ORIGIN?.trim();
+  const productionHostname = process.env.VERCEL_PROJECT_PRODUCTION_URL?.trim();
+  if (configured || productionHostname) {
+    const parsed = parseRequestOrigin(configured || `https://${productionHostname}`);
+    return parsed?.origin.startsWith("https://") ? parsed : null;
+  }
+  if (process.env.NODE_ENV === "production") return null;
+  const requestUrl = new URL(request.url);
+  const requestOrigin = parseRequestOrigin(requestUrl.origin);
+  // Next normalizes local URLs. Only loopback Host values are trusted here.
+  const incoming = parseRequestOrigin(`${requestUrl.protocol}//${request.headers.get("host") || ""}`);
+  if (requestOrigin && incoming && isLoopbackHostname(requestOrigin.hostname) &&
+      isLoopbackHostname(incoming.hostname)) return incoming;
+  return requestOrigin;
+}
+
 export function isRequestOriginAllowed(
   request: Request,
   requestOrigin: ParsedOrigin | null,
   allowedDomains: unknown
 ) {
+  // Database/configuration mistakes must not silently open a restricted agent.
+  if (allowedDomains !== null && allowedDomains !== undefined &&
+      (!Array.isArray(allowedDomains) || allowedDomains.some((entry) => typeof entry !== "string"))) {
+    return false;
+  }
   const configuredEntries = Array.isArray(allowedDomains)
     ? allowedDomains.filter(
         (entry): entry is string =>
@@ -136,7 +158,8 @@ export function isRequestOriginAllowed(
     return false;
   }
 
-  if (requestOrigin.origin === requestUrl.origin) {
+  const applicationOrigin = getTrustedApplicationOrigin(request);
+  if (applicationOrigin && requestOrigin.origin === applicationOrigin.origin) {
     return true;
   }
 
@@ -165,13 +188,11 @@ export function isOpaqueOrigin(originHeader: string | null) {
 }
 
 export function getCorsOrigin(
-  originHeader: string | null,
+  _originHeader: string | null,
   requestOrigin: ParsedOrigin | null
 ) {
-  return (
-    requestOrigin?.origin ??
-    (isOpaqueOrigin(originHeader) ? "null" : null)
-  );
+  // An opaque origin is shared by unrelated sandboxed/file documents.
+  return requestOrigin?.origin ?? null;
 }
 
 export function buildCorsHeaders(
@@ -182,6 +203,8 @@ export function buildCorsHeaders(
     "Access-Control-Allow-Methods": allowedMethods,
     "Access-Control-Allow-Headers": "Content-Type",
     Vary: "Origin",
+    "Cache-Control": "no-store",
+    "X-Content-Type-Options": "nosniff",
   };
 
   if (allowedOrigin) {

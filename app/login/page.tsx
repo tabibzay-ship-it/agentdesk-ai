@@ -4,6 +4,7 @@ import Link from "next/link";
 import { FormEvent, useState } from "react";
 import { useRouter } from "next/navigation";
 import { supabase } from "../../lib/supabase";
+import { isBoundedText, isValidEmail } from "../../lib/client-security";
 
 export default function LoginPage() {
   const router = useRouter();
@@ -16,8 +17,13 @@ export default function LoginPage() {
 
   async function handleLogin(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
+    if (loading) return;
 
     setErrorMessage("");
+    if (!isValidEmail(email.trim()) || !password || !isBoundedText(password, 1024)) {
+      setErrorMessage("Please enter a valid email address and password.");
+      return;
+    }
     setLoading(true);
 
     try {
@@ -27,7 +33,9 @@ export default function LoginPage() {
       });
 
       if (error) {
-        setErrorMessage(error.message);
+        setErrorMessage(error.status === 429
+          ? "Too many attempts. Please try again later."
+          : "Could not sign in. Check your credentials and email confirmation.");
         return;
       }
 
@@ -36,9 +44,9 @@ export default function LoginPage() {
         return;
       }
 
-      router.push("/dashboard");
-    } catch (error) {
-      console.error(error);
+      setPassword("");
+      router.replace("/dashboard");
+    } catch {
       setErrorMessage("Something went wrong. Please try again.");
     } finally {
       setLoading(false);
@@ -92,6 +100,7 @@ export default function LoginPage() {
               placeholder="you@company.com"
               required
               autoComplete="email"
+              maxLength={254}
               className="mt-2 w-full rounded-xl border border-slate-700 bg-slate-950 px-4 py-3 text-white outline-none focus:border-blue-500"
             />
 
@@ -107,6 +116,7 @@ export default function LoginPage() {
                 placeholder="Enter your password"
                 required
                 autoComplete="current-password"
+                maxLength={1024}
                 className="w-full rounded-xl border border-slate-700 bg-slate-950 px-4 py-3 pr-20 text-white outline-none focus:border-blue-500"
               />
 

@@ -4,6 +4,7 @@ import Link from "next/link";
 import { FormEvent, useState } from "react";
 import { useRouter } from "next/navigation";
 import { supabase } from "../../lib/supabase";
+import { isBoundedText, isValidEmail } from "../../lib/client-security";
 
 export default function RegisterPage() {
   const router = useRouter();
@@ -17,51 +18,61 @@ export default function RegisterPage() {
 
   async function handleRegister(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
+    if (loading) return;
 
     setMessage("");
     setErrorMessage("");
 
-    if (!fullName.trim()) {
-      setErrorMessage("Please enter your full name.");
+    if (!fullName.trim() || !isBoundedText(fullName.trim(), 200)) {
+      setErrorMessage("Please enter a full name of up to 200 characters.");
       return;
     }
 
-    if (password.length < 8) {
-      setErrorMessage("Password must be at least 8 characters.");
+    if (!isValidEmail(email.trim())) {
+      setErrorMessage("Please enter a valid email address.");
+      return;
+    }
+
+    if (password.length < 8 || !isBoundedText(password, 1024)) {
+      setErrorMessage("Password must contain 8 to 1024 characters.");
       return;
     }
 
     setLoading(true);
 
-    const { data, error } = await supabase.auth.signUp({
-      email,
-      password,
-      options: {
-        data: {
-          full_name: fullName.trim(),
+    try {
+      const { data, error } = await supabase.auth.signUp({
+        email: email.trim(),
+        password,
+        options: {
+          data: { full_name: fullName.trim() },
         },
-      },
-    });
+      });
 
-    setLoading(false);
+      if (error) {
+        // Provider responses can reveal whether an email is registered.
+        setErrorMessage(error.status === 429
+          ? "Too many attempts. Please try again later."
+          : "Could not create this account. Check your details or sign in.");
+        return;
+      }
 
-    if (error) {
-      setErrorMessage(error.message);
-      return;
-    }
-
-    if (data.session) {
-      router.replace("/dashboard");
-      return;
-    } else {
+      if (data.session) {
+        setPassword("");
+        router.replace("/dashboard");
+        return;
+      }
       setMessage(
-        "Account created! Please check your email and confirm your account."
+        "If this address can be registered, check your email to confirm your account."
       );
+      setFullName("");
+      setEmail("");
+      setPassword("");
+    } catch {
+      setErrorMessage("Could not create this account. Please try again.");
+    } finally {
+      setLoading(false);
     }
-
-    setFullName("");
-    setEmail("");
-    setPassword("");
   }
 
   return (
@@ -106,6 +117,7 @@ export default function RegisterPage() {
               placeholder="John Smith"
               required
               autoComplete="name"
+              maxLength={200}
               className="mt-2 w-full rounded-xl border border-slate-700 bg-slate-950 px-4 py-3 outline-none focus:border-blue-500"
             />
 
@@ -120,6 +132,7 @@ export default function RegisterPage() {
               placeholder="you@company.com"
               required
               autoComplete="email"
+              maxLength={254}
               className="mt-2 w-full rounded-xl border border-slate-700 bg-slate-950 px-4 py-3 outline-none focus:border-blue-500"
             />
 
@@ -133,6 +146,7 @@ export default function RegisterPage() {
                 placeholder="Create a strong password"
                 required
                 minLength={8}
+                maxLength={1024}
                 autoComplete="new-password"
                 className="w-full rounded-xl border border-slate-700 bg-slate-950 px-4 py-3 pr-16 outline-none focus:border-blue-500"
               />

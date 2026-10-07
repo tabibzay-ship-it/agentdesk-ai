@@ -3,6 +3,7 @@
 import { FormEvent, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { supabase } from "../../lib/supabase";
+import { isBoundedText } from "../../lib/client-security";
 
 export default function KnowledgePage() {
   const router = useRouter();
@@ -33,12 +34,18 @@ export default function KnowledgePage() {
 
   async function handleSubmit(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
+    if (loading) return;
 
     setMessage("");
     setError("");
 
     if (!title.trim() || !content.trim()) {
       setError("Please enter a title and knowledge content.");
+      return;
+    }
+
+    if (!isBoundedText(title.trim(), 200) || !isBoundedText(content.trim(), 200000)) {
+      setError("Use a title up to 200 characters and knowledge content up to 200,000 characters.");
       return;
     }
 
@@ -63,7 +70,7 @@ export default function KnowledgePage() {
       });
 
     if (insertError) {
-      setError(insertError.message);
+      setError("Could not save knowledge. Please check the content and try again.");
       setLoading(false);
       return;
     }
@@ -137,6 +144,7 @@ export default function KnowledgePage() {
               <input
                 type="text"
                 value={title}
+                maxLength={200}
                 onChange={(e) => setTitle(e.target.value)}
                 placeholder="Example: Internet Packages"
                 className="w-full rounded-xl border border-slate-700 bg-slate-950 px-4 py-3 outline-none transition focus:border-blue-500"
@@ -153,6 +161,7 @@ export default function KnowledgePage() {
                 onChange={(e) => setContent(e.target.value)}
                 placeholder="Enter information that your AI agent should know..."
                 rows={12}
+                maxLength={200000}
                 className="w-full resize-none rounded-xl border border-slate-700 bg-slate-950 px-4 py-3 outline-none transition focus:border-blue-500"
               />
             </div>

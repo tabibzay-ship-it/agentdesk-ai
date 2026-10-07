@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase";
+import { isBoundedText } from "@/lib/client-security";
 
 function normalizeAllowedDomains(value: string) {
   const entries = value
@@ -10,6 +11,10 @@ function normalizeAllowedDomains(value: string) {
     .map((entry) => entry.trim())
     .filter(Boolean);
   const domains = new Set<string>();
+
+  if (entries.length > 100 || value.length > 30000) {
+    return { domains: [] as string[], error: "Use no more than 100 allowed domains." };
+  }
 
   for (const entry of entries) {
     try {
@@ -32,7 +37,7 @@ function normalizeAllowedDomains(value: string) {
         .toLowerCase()
         .replace(/\.+$/, "");
 
-      if (!hostname || hostname.includes("*")) {
+      if (!hostname || hostname.length > 253 || hostname.includes("*")) {
         throw new Error("Invalid domain");
       }
 
@@ -107,8 +112,16 @@ export default function AgentPage() {
   }, [router]);
 
   async function saveSettings() {
+    if (saving) return;
     setSaving(true);
     setMessage("");
+
+    if (!isBoundedText(customInstructions.trim(), 2000) ||
+        !["professional", "friendly", "concise"].includes(tone)) {
+      setMessage("Use a supported response tone and instructions up to 2000 characters.");
+      setSaving(false);
+      return;
+    }
 
     const normalizedDomains =
       normalizeAllowedDomains(allowedDomainsText);
@@ -124,6 +137,7 @@ export default function AgentPage() {
     } = await supabase.auth.getUser();
 
     if (!user) {
+      setSaving(false);
       router.push("/login");
       return;
     }
@@ -361,6 +375,7 @@ export default function AgentPage() {
                 setAllowedDomainsText(event.target.value)
               }
               rows={5}
+              maxLength={30000}
               spellCheck={false}
               placeholder={"example.com\nwww.example.com\nshop.example.com"}
               className="mt-2 w-full resize-y rounded-xl border border-slate-700 bg-slate-950 px-4 py-4 font-mono text-sm text-white outline-none focus:border-blue-500"
