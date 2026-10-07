@@ -1,0 +1,97 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+
+  <meta
+    name="viewport"
+    content="width=device-width, initial-scale=1.0"
+  />
+
+  <title>AgentDesk AI Widget Test</title>
+
+  <style>
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      min-height: 100vh;
+      font-family: Arial, Helvetica, sans-serif;
+      background: #f1f5f9;
+      color: #0f172a;
+    }
+
+    .container {
+      max-width: 1100px;
+      margin: 0 auto;
+      padding: 80px 30px;
+    }
+
+    h1 {
+      font-size: 42px;
+      margin-bottom: 15px;
+    }
+
+    p {
+      max-width: 650px;
+      color: #64748b;
+      font-size: 18px;
+      line-height: 1.7;
+    }
+
+    .card {
+      margin-top: 40px;
+      padding: 30px;
+      border-radius: 20px;
+      background: white;
+      box-shadow: 0 10px 40px rgba(0, 0, 0, 0.08);
+    }
+
+    .card h2 {
+      margin-top: 0;
+    }
+  </style>
+</head>
+
+<body>
+
+  <div class="container">
+
+    <h1>Test Company Website</h1>
+
+    <p id="instructions">
+      Add <code>?agentId=YOUR_PUBLIC_AGENT_ID</code> to this page URL to test
+      an AgentDesk AI widget without placing a customer account in source code.
+    </p>
+
+    <div class="card">
+      <h2>Welcome to our website</h2>
+
+      <p>
+        If AgentDesk AI is working correctly,
+        a blue chat button should appear in the
+        bottom-right corner of this page.
+      </p>
+    </div>
+
+  </div>
+
+  <script>
+    const agentId = new URLSearchParams(window.location.search).get("agentId");
+    const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+    if (agentId && uuidPattern.test(agentId)) {
+      const widgetScript = document.createElement("script");
+      widgetScript.src = "/widget.js";
+      widgetScript.dataset.agentId = agentId;
+      widgetScript.async = true;
+      document.body.appendChild(widgetScript);
+      document.getElementById("instructions").textContent =
+        "The widget is loading with the supplied public Agent ID.";
+    }
+  </script>
+
+</body>
+</html>
