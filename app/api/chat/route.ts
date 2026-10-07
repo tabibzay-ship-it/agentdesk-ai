@@ -147,7 +147,6 @@ export async function POST(request: Request) {
 
     // =====================================
     // RESOLVE PUBLIC AGENT ID
-    // Public ID -> Internal User ID
     // =====================================
 
     const {
@@ -164,10 +163,7 @@ export async function POST(request: Request) {
         custom_instructions
         `
       )
-      .eq(
-        "public_agent_id",
-        publicAgentId
-      )
+      .eq("public_agent_id", publicAgentId)
       .maybeSingle();
 
     if (agentSettingsError) {
@@ -178,8 +174,7 @@ export async function POST(request: Request) {
 
       return jsonResponse(
         {
-          error:
-            "Could not load AI Agent.",
+          error: "Could not load AI Agent.",
         },
         500
       );
@@ -194,8 +189,6 @@ export async function POST(request: Request) {
       );
     }
 
-    // From this point onward we use ONLY
-    // the private/internal Supabase user ID.
     const agentId = agentSettings.user_id;
 
     // =====================================
@@ -231,9 +224,7 @@ export async function POST(request: Request) {
     // CHECK AGENT STATUS
     // =====================================
 
-    if (
-      agentSettings.is_active === false
-    ) {
+    if (agentSettings.is_active === false) {
       return jsonResponse(
         {
           error:
@@ -347,233 +338,240 @@ export async function POST(request: Request) {
     }
 
     // =====================================
-    // AGENT TONE
+    // USAGE ROLLBACK PROTECTION
     // =====================================
 
-    const agentTone =
-      agentSettings.tone ||
-      "professional";
+    let keepUsageReservation = false;
 
-    let toneInstruction = `
+    try {
+      // ===================================
+      // AGENT TONE
+      // ===================================
+
+      const agentTone =
+        agentSettings.tone ||
+        "professional";
+
+      let toneInstruction = `
 Use a professional, clear, respectful and business-focused tone.
 `;
 
-    if (agentTone === "friendly") {
-      toneInstruction = `
+      if (agentTone === "friendly") {
+        toneInstruction = `
 Use a warm, friendly, helpful and conversational tone.
 `;
-    }
+      }
 
-    if (agentTone === "concise") {
-      toneInstruction = `
+      if (agentTone === "concise") {
+        toneInstruction = `
 Keep answers short, direct and concise.
 Avoid unnecessary explanation.
 `;
-    }
+      }
 
-    // =====================================
-    // CUSTOM INSTRUCTIONS
-    // =====================================
+      // ===================================
+      // CUSTOM INSTRUCTIONS
+      // ===================================
 
-    const customInstructions =
-      agentSettings.custom_instructions?.trim() ||
-      "";
+      const customInstructions =
+        agentSettings.custom_instructions?.trim() ||
+        "";
 
-    const customInstructionContext =
-      customInstructions
-        ? `
+      const customInstructionContext =
+        customInstructions
+          ? `
 OWNER CUSTOM INSTRUCTIONS
 
 ${customInstructions}
 `
-        : `
+          : `
 OWNER CUSTOM INSTRUCTIONS
 
 No custom instructions have been provided.
 `;
 
-    // =====================================
-    // BUSINESS INFORMATION
-    // =====================================
+      // ===================================
+      // BUSINESS INFORMATION
+      // ===================================
 
-    const {
-      data: business,
-      error: businessError,
-    } = await supabaseAdmin
-      .from("business_profiles")
-      .select(
-        `
-        business_name,
-        description,
-        email,
-        phone,
-        website,
-        address
-        `
-      )
-      .eq("user_id", agentId)
-      .maybeSingle();
-
-    if (businessError) {
-      console.error(
-        "Business query error:",
-        businessError
-      );
-
-      return jsonResponse(
-        {
-          error:
-            "Could not load business information.",
-        },
-        500
-      );
-    }
-
-    // =====================================
-    // KNOWLEDGE BASE
-    // =====================================
-
-    const {
-      data: knowledge,
-      error: knowledgeError,
-    } = await supabaseAdmin
-      .from("knowledge_sources")
-      .select(
-        `
-        title,
-        content
-        `
-      )
-      .eq("user_id", agentId)
-      .order("created_at", {
-        ascending: true,
-      });
-
-    if (knowledgeError) {
-      console.error(
-        "Knowledge query error:",
-        knowledgeError
-      );
-
-      return jsonResponse(
-        {
-          error:
-            "Could not load knowledge base.",
-        },
-        500
-      );
-    }
-
-    // =====================================
-    // FIND CONVERSATION
-    // =====================================
-
-    const {
-      data: existingConversation,
-      error: conversationFindError,
-    } = await supabaseAdmin
-      .from("conversations")
-      .select("id")
-      .eq("user_id", agentId)
-      .eq("visitor_id", visitorId)
-      .order("created_at", {
-        ascending: false,
-      })
-      .limit(1)
-      .maybeSingle();
-
-    if (conversationFindError) {
-      console.error(
-        "Conversation lookup error:",
-        conversationFindError
-      );
-
-      return jsonResponse(
-        {
-          error:
-            "Could not load conversation.",
-        },
-        500
-      );
-    }
-
-    let conversationId =
-      existingConversation?.id;
-
-    // =====================================
-    // CREATE CONVERSATION
-    // =====================================
-
-    if (!conversationId) {
       const {
-        data: newConversation,
-        error: conversationCreateError,
+        data: business,
+        error: businessError,
       } = await supabaseAdmin
-        .from("conversations")
-        .insert({
-          user_id: agentId,
-          visitor_id: visitorId,
-          customer_name:
-            "Website Visitor",
-        })
-        .select("id")
-        .single();
+        .from("business_profiles")
+        .select(
+          `
+          business_name,
+          description,
+          email,
+          phone,
+          website,
+          address
+          `
+        )
+        .eq("user_id", agentId)
+        .maybeSingle();
 
-      if (conversationCreateError) {
+      if (businessError) {
         console.error(
-          "Conversation create error:",
-          conversationCreateError
+          "Business query error:",
+          businessError
         );
 
         return jsonResponse(
           {
             error:
-              "Could not create conversation.",
+              "Could not load business information.",
           },
           500
         );
       }
 
-      conversationId =
-        newConversation.id;
-    }
+      // ===================================
+      // KNOWLEDGE BASE
+      // ===================================
 
-    // =====================================
-    // SAVE CUSTOMER MESSAGE
-    // =====================================
+      const {
+        data: knowledge,
+        error: knowledgeError,
+      } = await supabaseAdmin
+        .from("knowledge_sources")
+        .select(
+          `
+          title,
+          content
+          `
+        )
+        .eq("user_id", agentId)
+        .order("created_at", {
+          ascending: true,
+        });
 
-    const {
-      error: customerMessageError,
-    } = await supabaseAdmin
-      .from("messages")
-      .insert({
-        conversation_id:
-          conversationId,
-        role: "user",
-        content: cleanMessage,
-      });
+      if (knowledgeError) {
+        console.error(
+          "Knowledge query error:",
+          knowledgeError
+        );
 
-    if (customerMessageError) {
-      console.error(
-        "Customer message save error:",
-        customerMessageError
-      );
+        return jsonResponse(
+          {
+            error:
+              "Could not load knowledge base.",
+          },
+          500
+        );
+      }
 
-      return jsonResponse(
-        {
-          error:
-            "Could not save customer message.",
-        },
-        500
-      );
-    }
+      // ===================================
+      // FIND CONVERSATION
+      // ===================================
 
-    // =====================================
-    // BUSINESS CONTEXT
-    // =====================================
+      const {
+        data: existingConversation,
+        error: conversationFindError,
+      } = await supabaseAdmin
+        .from("conversations")
+        .select("id")
+        .eq("user_id", agentId)
+        .eq("visitor_id", visitorId)
+        .order("created_at", {
+          ascending: false,
+        })
+        .limit(1)
+        .maybeSingle();
 
-    const businessContext = business
-      ? `
+      if (conversationFindError) {
+        console.error(
+          "Conversation lookup error:",
+          conversationFindError
+        );
+
+        return jsonResponse(
+          {
+            error:
+              "Could not load conversation.",
+          },
+          500
+        );
+      }
+
+      let conversationId =
+        existingConversation?.id;
+
+      // ===================================
+      // CREATE CONVERSATION
+      // ===================================
+
+      if (!conversationId) {
+        const {
+          data: newConversation,
+          error: conversationCreateError,
+        } = await supabaseAdmin
+          .from("conversations")
+          .insert({
+            user_id: agentId,
+            visitor_id: visitorId,
+            customer_name:
+              "Website Visitor",
+          })
+          .select("id")
+          .single();
+
+        if (conversationCreateError) {
+          console.error(
+            "Conversation create error:",
+            conversationCreateError
+          );
+
+          return jsonResponse(
+            {
+              error:
+                "Could not create conversation.",
+            },
+            500
+          );
+        }
+
+        conversationId =
+          newConversation.id;
+      }
+
+      // ===================================
+      // SAVE CUSTOMER MESSAGE
+      // ===================================
+
+      const {
+        error: customerMessageError,
+      } = await supabaseAdmin
+        .from("messages")
+        .insert({
+          conversation_id:
+            conversationId,
+          role: "user",
+          content: cleanMessage,
+        });
+
+      if (customerMessageError) {
+        console.error(
+          "Customer message save error:",
+          customerMessageError
+        );
+
+        return jsonResponse(
+          {
+            error:
+              "Could not save customer message.",
+          },
+          500
+        );
+      }
+
+      // ===================================
+      // BUSINESS CONTEXT
+      // ===================================
+
+      const businessContext = business
+        ? `
 BUSINESS INFORMATION
 
 Business name:
@@ -594,21 +592,21 @@ ${business.website || "Not provided"}
 Address:
 ${business.address || "Not provided"}
 `
-      : `
+        : `
 BUSINESS INFORMATION
 
 No business information has been provided.
 `;
 
-    // =====================================
-    // KNOWLEDGE CONTEXT
-    // =====================================
+      // ===================================
+      // KNOWLEDGE CONTEXT
+      // ===================================
 
-    const knowledgeContext =
-      knowledge && knowledge.length > 0
-        ? knowledge
-            .map(
-              (item, index) => `
+      const knowledgeContext =
+        knowledge && knowledge.length > 0
+          ? knowledge
+              .map(
+                (item, index) => `
 KNOWLEDGE SOURCE ${index + 1}
 
 Title:
@@ -617,67 +615,67 @@ ${item.title || "Untitled"}
 Information:
 ${item.content || "No information provided."}
 `
-            )
-            .join("\n")
-        : `
+              )
+              .join("\n")
+          : `
 KNOWLEDGE BASE
 
 No knowledge sources have been provided.
 `;
 
-    // =====================================
-    // RECENT HISTORY
-    // =====================================
+      // ===================================
+      // RECENT HISTORY
+      // ===================================
 
-    const {
-      data: history,
-      error: historyError,
-    } = await supabaseAdmin
-      .from("messages")
-      .select(
-        `
-        role,
-        content,
-        created_at
-        `
-      )
-      .eq(
-        "conversation_id",
-        conversationId
-      )
-      .order("created_at", {
-        ascending: false,
-      })
-      .limit(20);
-
-    if (historyError) {
-      console.error(
-        "History load error:",
-        historyError
-      );
-    }
-
-    const conversationHistory = [
-      ...(history ?? []),
-    ].reverse();
-
-    const conversationTranscript =
-      conversationHistory
-        .map((item) => {
-          const speaker =
-            item.role === "assistant"
-              ? "Assistant"
-              : "Customer";
-
-          return `${speaker}: ${item.content}`;
+      const {
+        data: history,
+        error: historyError,
+      } = await supabaseAdmin
+        .from("messages")
+        .select(
+          `
+          role,
+          content,
+          created_at
+          `
+        )
+        .eq(
+          "conversation_id",
+          conversationId
+        )
+        .order("created_at", {
+          ascending: false,
         })
-        .join("\n\n");
+        .limit(20);
 
-    // =====================================
-    // AI INSTRUCTIONS
-    // =====================================
+      if (historyError) {
+        console.error(
+          "History load error:",
+          historyError
+        );
+      }
 
-    const instructions = `
+      const conversationHistory = [
+        ...(history ?? []),
+      ].reverse();
+
+      const conversationTranscript =
+        conversationHistory
+          .map((item) => {
+            const speaker =
+              item.role === "assistant"
+                ? "Assistant"
+                : "Customer";
+
+            return `${speaker}: ${item.content}`;
+          })
+          .join("\n\n");
+
+      // ===================================
+      // AI INSTRUCTIONS
+      // ===================================
+
+      const instructions = `
 You are the customer support AI assistant for the business described below.
 
 Your job is to answer customer questions using the supplied business information and knowledge base.
@@ -731,79 +729,108 @@ ${knowledgeContext}
 ----------------------------------------
 `;
 
-    // =====================================
-    // ASK OPENAI
-    // =====================================
+      // ===================================
+      // ASK OPENAI
+      // PRODUCTION MODEL
+      // ===================================
 
-    const response =
-      await openai.responses.create({
-        model: "gpt-5-mini",
-        instructions,
-        input: conversationTranscript,
-      });
+      const response =
+        await openai.responses.create({
+          model: "gpt-5-mini",
+          instructions,
+          input: conversationTranscript,
+        });
 
-    // =====================================
-    // GET AI REPLY
-    // =====================================
+      // ===================================
+      // GET AI REPLY
+      // ===================================
 
-    const reply =
-      response.output_text?.trim();
+      const reply =
+        response.output_text?.trim();
 
-    if (!reply) {
-      return jsonResponse(
-        {
-          error:
-            "The AI did not return a response.",
+      if (!reply) {
+        return jsonResponse(
+          {
+            error:
+              "The AI did not return a response.",
+          },
+          500
+        );
+      }
+
+      // ===================================
+      // SAVE AI RESPONSE
+      // ===================================
+
+      const {
+        error: aiMessageError,
+      } = await supabaseAdmin
+        .from("messages")
+        .insert({
+          conversation_id:
+            conversationId,
+          role: "assistant",
+          content: reply,
+        });
+
+      if (aiMessageError) {
+        console.error(
+          "AI message save error:",
+          aiMessageError
+        );
+
+        return jsonResponse(
+          {
+            error:
+              "AI replied but the response could not be saved.",
+          },
+          500
+        );
+      }
+
+      // ===================================
+      // SUCCESS
+      // KEEP RESERVED USAGE
+      // ===================================
+
+      keepUsageReservation = true;
+
+      return jsonResponse({
+        reply,
+        conversationId,
+
+        usage: {
+          plan: usage.plan,
+          used: usage.used,
+          limit: usage.monthly_limit,
+          remaining: usage.remaining,
         },
-        500
-      );
-    }
-
-    // =====================================
-    // SAVE AI RESPONSE
-    // =====================================
-
-    const {
-      error: aiMessageError,
-    } = await supabaseAdmin
-      .from("messages")
-      .insert({
-        conversation_id:
-          conversationId,
-        role: "assistant",
-        content: reply,
       });
+    } finally {
+      // ===================================
+      // ROLLBACK FAILED AI REQUEST
+      // ===================================
 
-    if (aiMessageError) {
-      console.error(
-        "AI message save error:",
-        aiMessageError
-      );
+      if (!keepUsageReservation) {
+        const {
+          error: releaseError,
+        } = await supabaseAdmin.rpc(
+          "release_ai_usage",
+          {
+            p_user_id: agentId,
+            p_period_start:
+              usage.period_start,
+          }
+        );
 
-      return jsonResponse(
-        {
-          error:
-            "AI replied but the response could not be saved.",
-        },
-        500
-      );
+        if (releaseError) {
+          console.error(
+            "Usage rollback error:",
+            releaseError
+          );
+        }
+      }
     }
-
-    // =====================================
-    // SUCCESS
-    // =====================================
-
-    return jsonResponse({
-      reply,
-      conversationId,
-
-      usage: {
-        plan: usage.plan,
-        used: usage.used,
-        limit: usage.monthly_limit,
-        remaining: usage.remaining,
-      },
-    });
   } catch (error) {
     console.error(
       "AgentDesk AI chat error:",
