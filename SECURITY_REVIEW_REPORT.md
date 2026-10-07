@@ -4,9 +4,49 @@ Reviewed 8 October 2026. Scope: the active Desktop `agentdesk-ai` project (not `
 
 ## Outcome
 
-The Supabase compatibility blocker is fixed and the corrected hardening migration was applied successfully to the production `agentdesk-ai` project on 8 October 2026. Live SQL tests passed for RLS/grants, two existing accounts, service-role accounting, rate limits, refunds and UTC month compatibility. The milestone remains incomplete because hosted application/Auth configuration and end-to-end deployment checks remain unverified. The previous dependency audit's development advisory remains disclosed; its status was not rescanned in this compatibility repair.
+The production header and deployment checks pass. Netlify published security release `aefdaff20b18f9a04025053d16085f87d75415a6`; lint, all 95 tests, TypeScript/build, 21 production HTTP checks, 10 live widget-domain checks, real embedded-widget/dashboard chat and conversation persistence passed. The refreshed production dependency audit reports zero vulnerabilities. Final Security Review remains incomplete: positive public-site installation verification, signup/email-confirmation and account-switching flows, and the server password/abuse policy remain open. The full audit retains five high development-only findings representing one underlying advisory. The current production review below supersedes historical pending deployment/audit statements in the compatibility-repair section.
 
-## Supabase compatibility repair on 8 October 2026
+## Production deployment review — 8 October 2026
+
+The production header gap is resolved on [AgentDesk AI](https://musical-sunflower-fb3106.netlify.app). Netlify published [GitHub commit `aefdaff20b18f9a04025053d16085f87d75415a6`](https://github.com/tabibzay-ship-it/agentdesk-ai/commit/aefdaff20b18f9a04025053d16085f87d75415a6) in [deploy `6ac6bbd0ac83e300082d58bc`](https://app.netlify.com/projects/musical-sunflower-fb3106/deploys/6ac6bbd0ac83e300082d58bc). The active Desktop `agentdesk-ai` project was used; the backup project was excluded. **Final Security Review remains incomplete** pending the positive public-site installation check, remaining Auth flows and password/abuse policy decisions below.
+
+### Changes and compatibility
+
+Fresh predeployment document responses already had nosniff, referrer policy and HSTS; CSP was missing. The static widget lacked nosniff/referrer headers. This release publishes the previously uncommitted, coherent application/widget security hardening alongside the widget-compatible header configuration. It matches the already-applied SQL hardening; no production migration was rerun.
+
+Production now delivers CSP, `X-Content-Type-Options: nosniff`, `Referrer-Policy: strict-origin-when-cross-origin`, `X-Frame-Options: DENY`, restricted permissions, HSTS and no-store API responses. Browser source maps and framework disclosure remain disabled. `netlify.toml` adds nosniff/referrer headers specifically to `/widget.js`; Next.js supplies application/function response headers. This respects [Netlify's static-file/function header boundary](https://docs.netlify.com/manage/routing/headers/).
+
+CSP allows same-origin requests and the exact production Supabase HTTPS/WSS origins. OpenAI requests remain server-side through the application's API. `'unsafe-inline'` is retained for current static hydration and styles; `'unsafe-eval'` is absent in production. A nonce policy would require changes to rendering and caching, as described in [Next.js CSP guidance](https://nextjs.org/docs/app/guides/content-security-policy). This CSP is defense in depth and does not eliminate inline-script injection risk.
+
+The installed widget mounts DOM through an external script and does not use an iframe. Denying framing of AgentDesk pages is compatible with that architecture. No `Cross-Origin-Resource-Policy: same-origin` or `Cross-Origin-Embedder-Policy` was added to the widget. Customers with their own CSP must still permit the widget script and API connections under their site's policy.
+
+Netlify's public `AGENTDESK_APP_ORIGIN` is set to the exact production origin for the Production context, with all scopes. The preexisting Supabase Site URL was verified to match that origin and its sole redirect entry is `https://musical-sunflower-fb3106.netlify.app/**`; this task made no Supabase Auth setting changes.
+
+### Checks passed
+
+- ESLint: zero findings. Automated suite: **95 passed, 0 failed, 0 skipped**, including all 17 synthetic PostgreSQL checks. Independent TypeScript check and production build passed.
+- Deployed HTTP/header/API checks: **21 passed, 0 failed**. They cover five document routes, actual CSP/nosniff/referrer/HSTS/frame headers, widget MIME and embedding compatibility, HTTP-to-HTTPS redirect, no-store API responses, credential-free CORS, rejected opaque/malformed origins, malformed/oversized/unsupported requests, unauthenticated installation rejection and the exact production installation URL.
+- Live widget domain checks: **10 passed, 0 failed** across both existing restricted agents. Approved configured domains and the production origin returned 200; random domains, suffix/lookalike hosts and missing Origin returned 403. These were read-only settings probes, with no AI requests or database mutations.
+- The downloaded production widget passed **six behavioral smoke checks** using mocked DOM/API responses: mounting/toggling without an iframe, invalid-ID/settings failure, duplicate-script handling, hostile text/color safety and secure visitor rotation, storage denial, and inactive/offline sending behavior.
+- Actual production `/widget.js` mounted on the existing approved localhost customer fixture, loaded the saved custom name/welcome/color and opened/closed correctly. A real cross-origin widget chat and its CORS preflight passed. The fixture's CSP allowed a production login iframe, while the deployed AgentDesk frame policy still blocked its display, confirming that framing protection and script embedding coexist.
+- Authenticated production checks passed after the user signed in directly. A fresh dashboard restored the session and existing aggregate data; one dashboard chat and one embedded-widget chat each received a successful AI reply. Conversations retained both test prompts and replies. Final usage increased **25 to 27 of 100** for exactly two replies, and conversations increased **8 to 10**. Both intentional test conversations remain saved; no records were deleted. Logout returned to `/login`, and reopening `/dashboard` redirected to `/login` without exposing customer data. Sign-in credentials were not handled by the agent.
+- Authenticated installation UI displayed the correct production script URL and existing installed status. A verification attempt targeting `https://127.0.0.1` was rejected as an unapproved domain and preserved the saved installation state. The selected agent's allowlist contains only localhost, so no eligible public customer URL was available for a positive production verifier test.
+- Private secret comparisons found neither server secret value in **31 public/browser files or 53 published source files**. Secret values were not printed or placed in evidence.
+- Fresh registry audit: **0 production dependency vulnerabilities**. Full audit: **5 high findings** in the development-only ESLint/glob chain, representing one underlying `braces@3.0.3` advisory. [GHSA-vfj7-8cjw-p6xm](https://github.com/advisories/GHSA-vfj7-8cjw-p6xm) currently lists no patched version. No forced downgrade was applied. `npm ls --all` passed; 369 installed versions match the lockfile, with only 80 optional platform entries absent. Keep untrusted lint/CI work isolated and resource-limited until a compatible verified fix exists.
+
+Evidence: `production-security-check.json`, `production-widget-domain-checks.json`, and deployment, origin, password-policy, chat, conversation, widget and logout screenshots. Earlier successful production SQL migration/isolation/accounting tests remain historical evidence from the compatibility repair; they were not rerun during this deployment review. The 17 database tests above use synthetic fixtures. Beyond the two intended smoke conversations/replies, two usage charges and a verification rate-limit token, this review made no website, allowlist or database changes.
+
+### Remaining checks and user decisions
+
+1. Provide an actual published public customer hostname in the agent's allowed domains and install the production widget tag on that site's page. Then complete positive hosted installation verification. Localhost/private addresses are intentionally blocked by the production SSRF policy. Existing installed status and a negative verification check passed; they do not prove positive fetching/detection on a public host.
+2. Complete fresh signup/email-confirmation and account-switching flows. Sign-in, restored session, dashboard chat, real cross-origin widget chat, saved conversation retrieval and logout to `/login` passed. Protected-page redirect after logout also passed.
+3. Align the Supabase server password minimum with the application's eight-character requirement: the verified server minimum is currently six, with no composition requirement. The browser's minimum does not protect direct Auth requests.
+4. Decide the production abuse/account-change protections. Email confirmation and secure email change are enabled; anonymous sign-in is disabled; public signup is enabled. CAPTCHA, secure password change/current-password checks and leaked-password protection are disabled; leaked-password protection is shown as requiring the Pro tier. Enabling CAPTCHA requires compatible client integration. No Auth settings were changed in this review.
+5. Verified Auth limits are signup/sign-in **30 requests per five minutes per IP**, refresh **150 per five minutes per IP**, and verification **30 per five minutes per IP**. Assess these against expected traffic and the chosen CAPTCHA/abuse policy. Their presence is verified; effectiveness under attack has not been load-tested. The disclosed development-only advisory also remains open until a compatible fix is verified.
+
+Deployment headers, safe rejection behavior, restricted widget domains, real embedded-widget chat, authenticated dashboard/conversation persistence and the refreshed production audit pass. Positive public-site installation verification, remaining Auth flows and the server password/abuse policy remain open, so this review must not be marked 100% complete.
+
+## Earlier Supabase compatibility repair on 8 October 2026
 
 Only the active `C:\Users\Abdul Halim Tabibzay\Desktop\agentdesk-ai` project was edited. Existing uncommitted work was retained; the backup project and secret values were not accessed or changed.
 
@@ -63,20 +103,23 @@ PostgreSQL references: [function replacement/defaults and dependencies](https://
 - `lib/request-security.ts`
 - `lib/supabase.ts`
 - `next.config.ts`
+- `netlify.toml`
 - `package.json`
 - `package-lock.json`
 - `public/widget.js`
 - `README.md`
 - `SECURITY_DEPLOYMENT.md`
+- `SECURITY_REVIEW_REPORT.md`
 - `supabase/migrations/20261007010000_security_hardening.sql`
 - `supabase/security-verification.sql`
+- `supabase/live-security-regression.sql`
 - `tests/client-security.test.cjs`
 - `tests/database-security.test.cjs`
 - `tests/security-chat.test.cjs`
 - `tests/security-config.test.cjs`
 - `tests/verify-installation.test.cjs`
 
-## Verification results
+## Earlier compatibility-repair verification results
 
 - ESLint: pass, zero findings.
 - Automated suite on 8 October: **95 passed, 0 failed, 0 skipped**, including 17 PostgreSQL tests. This includes chat failure rollback, origin isolation, ID validation, SSRF/DNS rebinding, installation ownership, request limits, CSP/config and client credential guards.
@@ -86,13 +129,6 @@ PostgreSQL references: [function replacement/defaults and dependencies](https://
 - Previous dependency audit, retained as historical evidence: 0 known vulnerabilities in 29 production dependencies; 5 high findings representing one development-only `braces@3.0.3` advisory in the ESLint glob chain. A fresh registry audit was not part of this compatibility repair; do not treat the old scan as current or accept an unsafe Next.js downgrade suggestion.
 - Configured Supabase read-only probe: Auth settings endpoint reachable, email signup enabled, email auto-confirm disabled. Anonymous REST probes returned 401 for all seven tenant tables, but that does not replace authenticated two-account RLS tests or SQL verification.
 
-## Required live actions before 100%
-
-1. Database migration and live SQL isolation/accounting verification are complete. Perform actual signed-in browser/REST end-to-end checks against the deployed app, including approved/denied widget domains, dashboard chat, installation verification and saved conversations.
-2. In Supabase Auth verify the exact production Site URL and redirect allowlist, minimum password policy, signup/login rate limits and abuse protection. The previous public settings probe indicated email confirmation enabled.
-3. Set the exact HTTPS `AGENTDESK_APP_ORIGIN` outside Vercel (or verify Vercel's production URL), deploy without development dependencies, and verify HTTPS/security/cache headers on the real deployment.
-4. Re-run dependency audits and revisit the disclosed development advisory. Keep untrusted lint/CI jobs isolated with CPU/time limits until a compatible verified fix is installed.
-
 ## Milestone decision
 
-Final Security Review: **not 100% yet**. The migration compatibility blocker and live database SQL review are complete. Remaining Auth/deployment/end-to-end checks can proceed now; a current dependency scan is still required.
+Final Security Review: **not 100% yet**. The migration compatibility repair and prior live SQL isolation/accounting review are complete. The current production deployment, header, authenticated chat/conversation, cross-site widget and refreshed dependency checks have now passed. The remaining checks and decisions are listed in the current production review above.
