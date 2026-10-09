@@ -428,11 +428,12 @@ export default function ChatPage() {
   // =========================================
 
   function clearChat() {
+    if (sending) return;
     setMessages([]);
     setError("");
 
     localStorage.removeItem(
-      "agentdesk-dashboard-test-visitor"
+      `agentdesk-dashboard-test-visitor:${userId}:${publicAgentId}`
     );
   }
 
@@ -636,6 +637,7 @@ export default function ChatPage() {
                   <button
                     type="button"
                     onClick={clearChat}
+                    disabled={sending}
                     className="rounded-lg border border-slate-700 px-3 py-2 text-xs text-slate-300 transition hover:bg-slate-800"
                   >
                     Clear Chat

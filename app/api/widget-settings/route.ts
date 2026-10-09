@@ -245,7 +245,7 @@ export async function GET(request: Request) {
           "#2563eb",
 
         isActive:
-          agentSettings.is_active !== false,
+          agentSettings.is_active === true,
       });
     }
 
@@ -267,7 +267,7 @@ export async function GET(request: Request) {
         "#2563eb",
 
       isActive:
-        agentSettings.is_active !== false,
+        agentSettings.is_active === true,
     });
   } catch {
     console.error("Widget settings request failed.");

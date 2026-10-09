@@ -11,6 +11,9 @@ export default function SettingsPage() {
   const [email, setEmail] = useState("");
   const [userId, setUserId] = useState("");
 
+  const [signingOut, setSigningOut] = useState(false);
+  const [signOutError, setSignOutError] = useState("");
+
   useEffect(() => {
     async function loadAccount() {
       const {
@@ -31,8 +34,21 @@ export default function SettingsPage() {
   }, [router]);
 
   async function signOut() {
-    await supabase.auth.signOut();
-    router.push("/login");
+    if (signingOut) return;
+    setSignOutError("");
+    setSigningOut(true);
+    try {
+      const { error } = await supabase.auth.signOut({ scope: "global" });
+      if (error) {
+        setSignOutError("Could not sign out. Please try again.");
+        return;
+      }
+      router.replace("/login");
+    } catch {
+      setSignOutError("Could not sign out. Please try again.");
+    } finally {
+      setSigningOut(false);
+    }
   }
 
   if (loading) {
@@ -196,15 +212,21 @@ export default function SettingsPage() {
             </h2>
 
             <p className="text-sm text-slate-400 mt-1 mb-5">
-              Sign out of your AgentDesk AI account on this device.
+              Sign out of your AgentDesk AI account across devices.
             </p>
 
             <button
               onClick={signOut}
+              disabled={signingOut}
               className="px-5 py-2.5 rounded-xl bg-red-600 hover:bg-red-500 font-semibold transition"
             >
-              Sign Out
+              {signingOut ? "Signing Out..." : "Sign Out"}
             </button>
+            {signOutError && (
+              <p role="alert" className="mt-3 text-sm text-red-400">
+                {signOutError}
+              </p>
+            )}
           </section>
 
         </div>

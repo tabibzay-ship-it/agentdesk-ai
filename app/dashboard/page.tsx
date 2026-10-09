@@ -50,6 +50,9 @@ export default function DashboardPage() {
   // LOAD DASHBOARD
   // =========================================
 
+  const [signingOut, setSigningOut] = useState(false);
+  const [signOutError, setSignOutError] = useState("");
+
   useEffect(() => {
     async function loadDashboard() {
       try {
@@ -296,9 +299,21 @@ export default function DashboardPage() {
   // =========================================
 
   async function handleLogout() {
-    await supabase.auth.signOut();
-
-    router.replace("/login");
+    if (signingOut) return;
+    setSignOutError("");
+    setSigningOut(true);
+    try {
+      const { error } = await supabase.auth.signOut({ scope: "global" });
+      if (error) {
+        setSignOutError("Could not sign out. Please try again.");
+        return;
+      }
+      router.replace("/login");
+    } catch {
+      setSignOutError("Could not sign out. Please try again.");
+    } finally {
+      setSigningOut(false);
+    }
   }
 
   // =========================================
@@ -459,13 +474,19 @@ export default function DashboardPage() {
               <button
                 type="button"
                 onClick={handleLogout}
+                disabled={signingOut}
                 className="rounded-lg border border-slate-700 px-4 py-2 text-sm transition hover:bg-slate-800"
               >
-                Sign Out
+                {signingOut ? "Signing Out..." : "Sign Out"}
               </button>
 
             </div>
           </header>
+          {signOutError && (
+            <p role="alert" className="px-6 pt-4 text-sm text-red-400 lg:px-10">
+              {signOutError}
+            </p>
+          )}
 
           <div className="p-6 lg:p-10">
 
