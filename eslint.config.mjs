@@ -11,6 +11,8 @@ const eslintConfig = defineConfig([
     ".next/**",
     "out/**",
     "build/**",
+    ".netlify/**",
+    ".codex-pglite-runtime/**",
     "next-env.d.ts",
   ]),
 ]);

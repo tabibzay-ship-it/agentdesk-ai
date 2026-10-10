@@ -69,6 +69,10 @@ const securityHeaders = [
 const nextConfig: NextConfig = {
   poweredByHeader: false,
   productionBrowserSourceMaps: false,
+  // pdfjs loads its companion worker at runtime on the server. Keeping the
+  // package external prevents Turbopack from relocating only the main module
+  // while leaving pdf.worker.mjs behind in node_modules.
+  serverExternalPackages: ["pdfjs-dist"],
   async headers() {
     return [
       {

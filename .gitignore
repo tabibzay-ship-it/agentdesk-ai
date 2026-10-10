@@ -12,6 +12,7 @@
 
 # testing
 /coverage
+/.codex-pglite-runtime/
 
 # next.js
 /.next/
@@ -35,6 +36,10 @@ yarn-error.log*
 
 # vercel
 .vercel
+
+# local deployment and Supabase tooling state
+/.netlify/
+/supabase/.temp/
 
 # typescript
 *.tsbuildinfo

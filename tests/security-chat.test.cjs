@@ -60,7 +60,7 @@ function fixture(options = {}) {
     async rpc(name, args) {
       rpcs.push({ name, args });
       if (name === "check_chat_rate_limit") return { data: !(args.p_visitor_id === "__agent_burst__" ? options.accountLimited : options.visitorLimited), error: options.rateError ? { message: "PRIVATE_ERROR_DETAILS" } : null };
-      if (name === "security_reserve_ai_usage") return { data: { allowed: !options.monthlyLimited, reservation_id: reservation, period_start: "2026-10-01", plan: "free", used: 1, monthly_limit: 100, remaining: 99 }, error: null };
+      if (name === "billing_security_reserve_ai_usage") return { data: { allowed: !options.monthlyLimited, reservation_id: reservation, period_start: "2026-10-01", plan: "free", used: 1, monthly_limit: 100, remaining: 99 }, error: null };
       if (name === "security_release_ai_usage") return { data: true, error: null };
       throw new Error(`Unexpected RPC ${name}`);
     },
@@ -79,6 +79,12 @@ function fixture(options = {}) {
     "next/server": { NextResponse: { json(data, init) { return Response.json(data, init); } } },
     "@/lib/origin-security": originHelper,
     "@/lib/request-security": bodyHelper,
+    "@/lib/chat-attachments": {
+      CHAT_ATTACHMENT_BUCKET: "chat-attachments",
+      MAX_ATTACHMENTS_PER_MESSAGE: 5,
+      MAX_TOTAL_CONTEXT_CHARS: 32000,
+      attachmentDto(row) { return row; },
+    },
   }, logs);
   const request = (overrides = {}, origin = "https://customer.example") => new Request("https://agentdesk.example/api/chat", {
     method: "POST", headers: { "Content-Type": "application/json", ...(origin !== undefined ? { Origin: origin } : {}) },

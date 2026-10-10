@@ -1,851 +1,99 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
-import { supabase } from "../../lib/supabase";
+import { supabase } from "@/lib/supabase";
+
+type Locale = "en" | "ps" | "fa";
+type Conversation = { id: string; customer_name: string | null; customer_email: string | null; created_at: string };
+type DashboardData = {
+  conversations: Conversation[]; questions: { content: string; created_at: string }[];
+  conversationCount: number; responseCount: number; knowledgeCount: number;
+  agentOnline: boolean; agentName: string; welcomeMessage: string;
+  widgetInstalled: boolean; widgetConfigured: boolean; businessCompleted: boolean; securityCompleted: boolean;
+  billing: { plan: string | null; status: string | null; used: number; limit: number };
+};
+const emptyData: DashboardData = { conversations: [], questions: [], conversationCount: 0, responseCount: 0, knowledgeCount: 0, agentOnline: false, agentName: "AI Support Assistant", welcomeMessage: "Hi! How can I help you today?", widgetInstalled: false, widgetConfigured: false, businessCompleted: false, securityCompleted: false, billing: { plan: null, status: null, used: 0, limit: 0 } };
+
+const copy = {
+  en: { dashboard: "Dashboard", overview: "Overview", greeting: "Welcome back", subtitle: "Here’s what’s happening with your AI support today.", conversations: "Conversations", responses: "AI responses", leads: "Leads", appointments: "Appointments", knowledge: "Knowledge sources", activity: "Conversation activity", last7: "Last 7 days", topQuestions: "Top questions", agentStatus: "AI agent status", online: "Online", offline: "Offline", openAgent: "Manage agent", recent: "Recent conversations", viewAll: "View all", noConversations: "No conversations yet", noQuestions: "Questions will appear here after customers start chatting.", knowledgeBase: "Knowledge base", sourcesReady: "sources ready", manage: "Manage", widget: "Website widget", installed: "Installed", notInstalled: "Not installed", customize: "Customize", subscription: "Subscription", usage: "responses used", billing: "Manage billing", comingSoon: "Coming soon", noData: "No records yet", setup: "Setup progress", signOut: "Sign out", testChat: "Test chat", settings: "Settings", install: "Installation", language: "Language", loading: "Loading dashboard…", error: "Some dashboard data could not be loaded.", thisWeek: "this week" },
+  ps: { dashboard: "ډشبورډ", overview: "لنډیز", greeting: "بیا ښه راغلاست", subtitle: "نن ستاسو د AI ملاتړ حالت دلته وګورئ.", conversations: "خبرې اترې", responses: "د AI ځوابونه", leads: "مراجعین", appointments: "وختونه", knowledge: "معلوماتي سرچینې", activity: "د خبرو فعالیت", last7: "وروستۍ ۷ ورځې", topQuestions: "مهمې پوښتنې", agentStatus: "د AI استازي حالت", online: "فعال", offline: "غیرفعال", openAgent: "استازی تنظیم کړئ", recent: "وروستۍ خبرې", viewAll: "ټولې وګورئ", noConversations: "تر اوسه خبرې نشته", noQuestions: "د پیرودونکو پوښتنې به دلته ښکاره شي.", knowledgeBase: "معلوماتي زېرمه", sourcesReady: "سرچینې چمتو دي", manage: "اداره", widget: "د وېبپاڼې وېجټ", installed: "نصب شوی", notInstalled: "نصب شوی نه دی", customize: "سمون", subscription: "ګډون", usage: "ځوابونه کارول شوي", billing: "بلینګ اداره کړئ", comingSoon: "ژر راځي", noData: "تر اوسه معلومات نشته", setup: "د تنظیم پرمختګ", signOut: "وتل", testChat: "ازمایښتي چټ", settings: "تنظیمات", install: "نصب", language: "ژبه", loading: "ډشبورډ پورته کېږي…", error: "ځینې معلومات پورته نه شول.", thisWeek: "دا اونۍ" },
+  fa: { dashboard: "داشبورد", overview: "نمای کلی", greeting: "خوش آمدید", subtitle: "وضعیت پشتیبانی هوش مصنوعی امروز شما.", conversations: "گفتگوها", responses: "پاسخ‌های AI", leads: "مشتریان بالقوه", appointments: "قرارها", knowledge: "منابع دانش", activity: "فعالیت گفتگو", last7: "۷ روز اخیر", topQuestions: "پرسش‌های برتر", agentStatus: "وضعیت عامل AI", online: "آنلاین", offline: "آفلاین", openAgent: "مدیریت عامل", recent: "گفتگوهای اخیر", viewAll: "مشاهده همه", noConversations: "هنوز گفتگویی نیست", noQuestions: "پرسش‌های مشتریان در اینجا نمایش داده می‌شود.", knowledgeBase: "پایگاه دانش", sourcesReady: "منبع آماده", manage: "مدیریت", widget: "ویجت وب‌سایت", installed: "نصب شده", notInstalled: "نصب نشده", customize: "سفارشی‌سازی", subscription: "اشتراک", usage: "پاسخ استفاده شده", billing: "مدیریت پرداخت", comingSoon: "به‌زودی", noData: "هنوز داده‌ای نیست", setup: "پیشرفت راه‌اندازی", signOut: "خروج", testChat: "چت آزمایشی", settings: "تنظیمات", install: "نصب", language: "زبان", loading: "در حال بارگذاری داشبورد…", error: "بخشی از اطلاعات بارگذاری نشد.", thisWeek: "این هفته" },
+} as const;
+
+function Icon({ name, className = "h-5 w-5" }: { name: string; className?: string }) {
+  const paths: Record<string, ReactNode> = {
+    grid: <><rect x="3" y="3" width="7" height="7" rx="2"/><rect x="14" y="3" width="7" height="7" rx="2"/><rect x="3" y="14" width="7" height="7" rx="2"/><rect x="14" y="14" width="7" height="7" rx="2"/></>,
+    bot: <><rect x="4" y="7" width="16" height="13" rx="4"/><path d="M9 11h.01M15 11h.01M8 16h8M12 7V3M9 3h6"/></>,
+    book: <><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20V4H6.5A2.5 2.5 0 0 0 4 6.5z"/><path d="M4 6.5v13"/></>,
+    chat: <><path d="M21 15a4 4 0 0 1-4 4H8l-5 3V7a4 4 0 0 1 4-4h10a4 4 0 0 1 4 4z"/><path d="M8 9h8M8 13h5"/></>,
+    globe: <><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3c3 3.3 3 14.7 0 18M12 3c-3 3.3-3 14.7 0 18"/></>,
+    card: <><rect x="3" y="5" width="18" height="14" rx="3"/><path d="M3 10h18M7 15h3"/></>,
+    gear: <><circle cx="12" cy="12" r="3"/><path d="M19 14.5a2 2 0 0 0 .4 2.2l.1.1-2.7 2.7-.1-.1a2 2 0 0 0-2.2-.4 2 2 0 0 0-1.2 1.8v.2H9.5v-.2A2 2 0 0 0 8.3 19a2 2 0 0 0-2.2.4l-.1.1-2.7-2.7.1-.1a2 2 0 0 0 .4-2.2A2 2 0 0 0 2 13.3h-.2V9.5H2A2 2 0 0 0 3.8 8a2 2 0 0 0-.4-2.2l-.1-.1L6 3l.1.1a2 2 0 0 0 2.2.4A2 2 0 0 0 9.5 1.8v-.2h3.8v.2a2 2 0 0 0 1.2 1.8 2 2 0 0 0 2.2-.4l.1-.1 2.7 2.7-.1.1A2 2 0 0 0 19 8a2 2 0 0 0 1.8 1.2h.2V13h-.2a2 2 0 0 0-1.8 1.5z"/></>,
+    trend: <><path d="M3 17l6-6 4 4 8-9"/><path d="M15 6h6v6"/></>, users: <><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75"/></>,
+    calendar: <><rect x="3" y="5" width="18" height="16" rx="3"/><path d="M16 3v4M8 3v4M3 10h18"/></>, menu: <path d="M4 7h16M4 12h16M4 17h16"/>, arrow: <path d="M5 12h14M13 6l6 6-6 6"/>, logout: <><path d="M10 17l5-5-5-5M15 12H3"/><path d="M14 3h5a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-5"/></>,
+  };
+  return <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" className={className}>{paths[name]}</svg>;
+}
 
 export default function DashboardPage() {
   const router = useRouter();
+  const [data, setData] = useState(emptyData); const [loading, setLoading] = useState(true); const [warning, setWarning] = useState(false);
+  const [signingOut, setSigningOut] = useState(false); const [signOutError, setSignOutError] = useState(""); const [menuOpen, setMenuOpen] = useState(false); const [locale, setLocale] = useState<Locale>(() => { if (typeof window === "undefined") return "en"; const saved = window.localStorage.getItem("agentdesk-dashboard-language"); return saved === "ps" || saved === "fa" ? saved : "en"; });
+  const [profile, setProfile] = useState({ name: "", email: "" }); const t = copy[locale]; const rtl = locale !== "en";
 
-  const [email, setEmail] = useState("");
-  const [name, setName] = useState("");
-  const [loading, setLoading] = useState(true);
-
-  const [businessCompleted, setBusinessCompleted] =
-    useState(false);
-
-  const [knowledgeCompleted, setKnowledgeCompleted] =
-    useState(false);
-
-  const [widgetCompleted, setWidgetCompleted] =
-    useState(false);
-
-  const [installCompleted, setInstallCompleted] =
-    useState(false);
-
-  const [securityCompleted, setSecurityCompleted] =
-    useState(false);
-
-  const [knowledgeCount, setKnowledgeCount] =
-    useState(0);
-
-  const [conversationCount, setConversationCount] =
-    useState(0);
-
-  const [aiResponseCount, setAiResponseCount] =
-    useState(0);
-
-  const [agentOnline, setAgentOnline] =
-    useState(true);
-
-  const [agentName, setAgentName] =
-    useState("AI Support Assistant");
-
-  const [welcomeMessage, setWelcomeMessage] =
-    useState(
-      "Hi! 👋 How can I help you today?"
-    );
-
-  // =========================================
-  // LOAD DASHBOARD
-  // =========================================
-
-  const [signingOut, setSigningOut] = useState(false);
-  const [signOutError, setSignOutError] = useState("");
-
-  useEffect(() => {
-    async function loadDashboard() {
-      try {
-        // =====================================
-        // GET LOGGED-IN USER
-        // =====================================
-
-        const {
-          data: { user },
-          error: userError,
-        } = await supabase.auth.getUser();
-
-        if (userError || !user) {
-          router.replace("/login");
-          return;
-        }
-
-        // =====================================
-        // USER INFORMATION
-        // =====================================
-
-        setEmail(user.email ?? "");
-
-        setName(
-          user.user_metadata?.full_name ??
-            user.email?.split("@")[0] ??
-            "User"
-        );
-
-        // =====================================
-        // STEP 1 - BUSINESS INFORMATION
-        // =====================================
-
-        const {
-          data: business,
-          error: businessError,
-        } = await supabase
-          .from("business_profiles")
-          .select("id")
-          .eq("user_id", user.id)
-          .limit(1);
-
-        if (!businessError) {
-          setBusinessCompleted(
-            !!business && business.length > 0
-          );
-        } else {
-          console.error(
-            "Business information error:",
-            businessError
-          );
-        }
-
-        // =====================================
-        // STEP 2 - KNOWLEDGE BASE
-        // =====================================
-
-        const {
-          count: knowledgeTotal,
-          error: knowledgeError,
-        } = await supabase
-          .from("knowledge_sources")
-          .select("*", {
-            count: "exact",
-            head: true,
-          })
-          .eq("user_id", user.id);
-
-        if (!knowledgeError) {
-          const total =
-            knowledgeTotal ?? 0;
-
-          setKnowledgeCount(total);
-
-          setKnowledgeCompleted(
-            total > 0
-          );
-        } else {
-          console.error(
-            "Knowledge count error:",
-            knowledgeError
-          );
-        }
-
-        // =====================================
-        // CONVERSATIONS COUNT
-        // =====================================
-
-        const {
-          count: conversationsTotal,
-          error: conversationsError,
-        } = await supabase
-          .from("conversations")
-          .select("*", {
-            count: "exact",
-            head: true,
-          })
-          .eq("user_id", user.id);
-
-        if (!conversationsError) {
-          setConversationCount(
-            conversationsTotal ?? 0
-          );
-        } else {
-          console.error(
-            "Conversations count error:",
-            conversationsError
-          );
-        }
-
-        // =====================================
-        // AI RESPONSES COUNT
-        // =====================================
-
-        const {
-          count: responsesTotal,
-          error: responsesError,
-        } = await supabase
-          .from("messages")
-          .select(
-            `
-            *,
-            conversations!inner(user_id)
-            `,
-            {
-              count: "exact",
-              head: true,
-            }
-          )
-          .eq("role", "assistant")
-          .eq(
-            "conversations.user_id",
-            user.id
-          );
-
-        if (!responsesError) {
-          setAiResponseCount(
-            responsesTotal ?? 0
-          );
-        } else {
-          console.error(
-            "AI responses count error:",
-            responsesError
-          );
-        }
-
-        // =====================================
-        // STEP 3 + STEP 4
-        // WIDGET SETTINGS
-        // =====================================
-
-        const {
-          data: widget,
-          error: widgetError,
-        } = await supabase
-          .from("widget_settings")
-          .select(
-            `
-            id,
-            agent_name,
-            welcome_message,
-            is_installed
-            `
-          )
-          .eq("user_id", user.id)
-          .maybeSingle();
-
-        if (!widgetError && widget) {
-          // Step 3
-          setWidgetCompleted(true);
-
-          // Step 4
-          setInstallCompleted(
-            widget.is_installed === true
-          );
-
-          // Preview settings
-          setAgentName(
-            widget.agent_name ||
-              "AI Support Assistant"
-          );
-
-          setWelcomeMessage(
-            widget.welcome_message ||
-              "Hi! 👋 How can I help you today?"
-          );
-        } else if (widgetError) {
-          console.error(
-            "Widget settings error:",
-            widgetError
-          );
-        }
-
-        // =====================================
-        // AGENT STATUS
-        // =====================================
-
-        const {
-          data: agentSettings,
-          error: agentError,
-        } = await supabase
-          .from("agent_settings")
-          .select("is_active, allowed_domains")
-          .eq("user_id", user.id)
-          .maybeSingle();
-
-        if (
-          !agentError &&
-          agentSettings
-        ) {
-          setAgentOnline(
-            agentSettings.is_active === true
-          );
-
-          setSecurityCompleted(
-            Array.isArray(agentSettings.allowed_domains) &&
-              agentSettings.allowed_domains.some(
-                (domain: unknown) =>
-                  typeof domain === "string" &&
-                  domain.trim().length > 0
-              )
-          );
-        } else if (agentError) {
-          console.error(
-            "Agent status error:",
-            agentError
-          );
-        }
-      } catch (error) {
-        console.error(
-          "Dashboard loading error:",
-          error
-        );
-      } finally {
-        setLoading(false);
-      }
-    }
-
-    loadDashboard();
-  }, [router]);
-
-  // =========================================
-  // LOGOUT
-  // =========================================
-
-  async function handleLogout() {
-    if (signingOut) return;
-    setSignOutError("");
-    setSigningOut(true);
+  useEffect(() => { let active = true; void (async () => {
     try {
-      const { error } = await supabase.auth.signOut({ scope: "global" });
-      if (error) {
-        setSignOutError("Could not sign out. Please try again.");
-        return;
-      }
-      router.replace("/login");
-    } catch {
-      setSignOutError("Could not sign out. Please try again.");
-    } finally {
-      setSigningOut(false);
-    }
-  }
-
-  // =========================================
-  // LOADING
-  // =========================================
-
-  if (loading) {
-    return (
-      <main className="flex min-h-screen items-center justify-center bg-slate-950 text-white">
-        <p className="text-slate-400">
-          Loading AgentDesk AI...
-        </p>
-      </main>
-    );
-  }
-
-  // =========================================
-  // PAGE
-  // =========================================
-
-  return (
-    <main className="min-h-screen bg-slate-950 text-white">
-      <div className="flex min-h-screen">
-
-        {/* =====================================
-            SIDEBAR
-        ====================================== */}
-
-        <aside className="hidden w-64 border-r border-slate-800 bg-slate-900 p-5 md:block">
-
-          <div className="mb-10 text-2xl font-bold">
-            AgentDesk{" "}
-            <span className="text-blue-500">
-              AI
-            </span>
-          </div>
-
-          <nav className="space-y-2">
-
-            {/* Dashboard */}
-
-            <button
-              type="button"
-              className="w-full rounded-xl bg-blue-600 px-4 py-3 text-left font-medium"
-            >
-              Dashboard
-            </button>
-
-            {/* AI Agent */}
-
-            <button
-              type="button"
-              onClick={() =>
-                router.push("/agent")
-              }
-              className="w-full rounded-xl px-4 py-3 text-left text-slate-400 transition hover:bg-slate-800 hover:text-white"
-            >
-              AI Agent
-            </button>
-
-            {/* Knowledge Base */}
-
-            <button
-              type="button"
-              onClick={() =>
-                router.push("/knowledge")
-              }
-              className="w-full rounded-xl px-4 py-3 text-left text-slate-400 transition hover:bg-slate-800 hover:text-white"
-            >
-              Knowledge Base
-            </button>
-
-            {/* Conversations */}
-
-            <button
-              type="button"
-              onClick={() =>
-                router.push(
-                  "/conversations"
-                )
-              }
-              className="w-full rounded-xl px-4 py-3 text-left text-slate-400 transition hover:bg-slate-800 hover:text-white"
-            >
-              Conversations
-            </button>
-
-            {/* Test Chat */}
-
-            <button
-              type="button"
-              onClick={() =>
-                router.push("/chat")
-              }
-              className="w-full rounded-xl px-4 py-3 text-left text-slate-400 transition hover:bg-slate-800 hover:text-white"
-            >
-              💬 Test Chat
-            </button>
-
-            {/* Website Widget */}
-
-            <button
-              type="button"
-              onClick={() =>
-                router.push("/widget")
-              }
-              className="w-full rounded-xl px-4 py-3 text-left text-slate-400 transition hover:bg-slate-800 hover:text-white"
-            >
-              Website Widget
-            </button>
-
-            {/* Settings */}
-
-            <button
-              type="button"
-              onClick={() =>
-                router.push("/settings")
-              }
-              className="w-full rounded-xl px-4 py-3 text-left text-slate-400 transition hover:bg-slate-800 hover:text-white"
-            >
-              Settings
-            </button>
-
-          </nav>
-        </aside>
-
-        {/* =====================================
-            MAIN CONTENT
-        ====================================== */}
-
-        <section className="flex-1">
-
-          {/* HEADER */}
-
-          <header className="flex items-center justify-between border-b border-slate-800 px-6 py-5 lg:px-10">
-
-            <div>
-              <h1 className="text-xl font-semibold">
-                Dashboard
-              </h1>
-
-              <p className="text-sm text-slate-500">
-                Manage your AI customer support.
-              </p>
-            </div>
-
-            <div className="flex items-center gap-4">
-
-              <div className="hidden text-right sm:block">
-                <p className="text-sm font-medium">
-                  {name}
-                </p>
-
-                <p className="text-xs text-slate-500">
-                  {email}
-                </p>
-              </div>
-
-              <button
-                type="button"
-                onClick={handleLogout}
-                disabled={signingOut}
-                className="rounded-lg border border-slate-700 px-4 py-2 text-sm transition hover:bg-slate-800"
-              >
-                {signingOut ? "Signing Out..." : "Sign Out"}
-              </button>
-
-            </div>
-          </header>
-          {signOutError && (
-            <p role="alert" className="px-6 pt-4 text-sm text-red-400 lg:px-10">
-              {signOutError}
-            </p>
-          )}
-
-          <div className="p-6 lg:p-10">
-
-            {/* =====================================
-                WELCOME
-            ====================================== */}
-
-            <div className="mb-8">
-
-              <h2 className="text-3xl font-bold">
-                Welcome, {name} 👋
-              </h2>
-
-              <p className="mt-2 text-slate-400">
-                Here&apos;s what&apos;s happening
-                with your AI support agent.
-              </p>
-
-            </div>
-
-            {/* =====================================
-                STATISTICS
-            ====================================== */}
-
-            <div className="grid gap-5 md:grid-cols-2 xl:grid-cols-4">
-
-              {/* Conversations */}
-
-              <div className="rounded-2xl border border-slate-800 bg-slate-900 p-6">
-
-                <p className="text-sm text-slate-400">
-                  Conversations
-                </p>
-
-                <p className="mt-3 text-3xl font-bold">
-                  {conversationCount}
-                </p>
-
-                <p className="mt-2 text-xs text-slate-500">
-                  Total conversations
-                </p>
-
-              </div>
-
-              {/* AI Responses */}
-
-              <div className="rounded-2xl border border-slate-800 bg-slate-900 p-6">
-
-                <p className="text-sm text-slate-400">
-                  AI Responses
-                </p>
-
-                <p className="mt-3 text-3xl font-bold">
-                  {aiResponseCount}
-                </p>
-
-                <p className="mt-2 text-xs text-slate-500">
-                  Messages answered by AI
-                </p>
-
-              </div>
-
-              {/* Knowledge Sources */}
-
-              <div className="rounded-2xl border border-slate-800 bg-slate-900 p-6">
-
-                <p className="text-sm text-slate-400">
-                  Knowledge Sources
-                </p>
-
-                <p className="mt-3 text-3xl font-bold">
-                  {knowledgeCount}
-                </p>
-
-                <p className="mt-2 text-xs text-slate-500">
-                  Training sources
-                </p>
-
-              </div>
-
-              {/* Agent Status */}
-
-              <div className="rounded-2xl border border-slate-800 bg-slate-900 p-6">
-
-                <p className="text-sm text-slate-400">
-                  Agent Status
-                </p>
-
-                <div className="mt-3 flex items-center gap-2">
-
-                  <span
-                    className={`h-3 w-3 rounded-full ${
-                      agentOnline
-                        ? "bg-green-500"
-                        : "bg-red-500"
-                    }`}
-                  />
-
-                  <p
-                    className={`text-xl font-bold ${
-                      agentOnline
-                        ? "text-white"
-                        : "text-red-400"
-                    }`}
-                  >
-                    {agentOnline
-                      ? "Online"
-                      : "Offline"}
-                  </p>
-
-                </div>
-
-                <p className="mt-2 text-xs text-slate-500">
-                  {agentOnline
-                    ? "AI agent is ready"
-                    : "AI agent is disabled"}
-                </p>
-
-              </div>
-            </div>
-
-            {/* =====================================
-                SETUP + AGENT PREVIEW
-            ====================================== */}
-
-            <div className="mt-8 grid gap-6 lg:grid-cols-2">
-
-              {/* SETUP CARD */}
-
-              <div className="rounded-2xl border border-slate-800 bg-slate-900 p-6">
-
-                <h3 className="text-xl font-semibold">
-                  Set up your AI Agent
-                </h3>
-
-                <p className="mt-2 text-sm text-slate-400">
-                  Complete these steps to launch
-                  your customer support agent.
-                </p>
-
-                <div className="mt-6 space-y-4">
-
-                  {/* STEP 1 */}
-
-                  <div className="flex items-center justify-between gap-4 rounded-xl bg-slate-950 p-4">
-
-                    <span>
-                      1. Add business information
-                    </span>
-
-                    <button
-                      type="button"
-                      onClick={() =>
-                        router.push("/business")
-                      }
-                      className={
-                        businessCompleted
-                          ? "font-medium text-green-400 transition hover:text-green-300"
-                          : "font-medium text-blue-400 transition hover:text-blue-300"
-                      }
-                    >
-                      {businessCompleted
-                        ? "Completed ✓"
-                        : "Start"}
-                    </button>
-
-                  </div>
-
-                  {/* STEP 2 */}
-
-                  <div className="flex items-center justify-between gap-4 rounded-xl bg-slate-950 p-4">
-
-                    <span>
-                      2. Add knowledge
-                    </span>
-
-                    <button
-                      type="button"
-                      onClick={() =>
-                        router.push(
-                          "/knowledge"
-                        )
-                      }
-                      className={
-                        knowledgeCompleted
-                          ? "font-medium text-green-400 transition hover:text-green-300"
-                          : "font-medium text-blue-400 transition hover:text-blue-300"
-                      }
-                    >
-                      {knowledgeCompleted
-                        ? "Completed ✓"
-                        : "Start"}
-                    </button>
-
-                  </div>
-
-                  {/* STEP 3 */}
-
-                  <div className="flex items-center justify-between gap-4 rounded-xl bg-slate-950 p-4">
-
-                    <span>
-                      3. Customize chat widget
-                    </span>
-
-                    <button
-                      type="button"
-                      onClick={() =>
-                        router.push("/widget")
-                      }
-                      className={
-                        widgetCompleted
-                          ? "font-medium text-green-400 transition hover:text-green-300"
-                          : "font-medium text-blue-400 transition hover:text-blue-300"
-                      }
-                    >
-                      {widgetCompleted
-                        ? "Completed ✓"
-                        : "Start"}
-                    </button>
-
-                  </div>
-
-                  {/* STEP 4 */}
-
-                  <div className="flex items-center justify-between gap-4 rounded-xl bg-slate-950 p-4">
-                    <span>
-                      4. Secure allowed domains
-                    </span>
-
-                    <button
-                      type="button"
-                      onClick={() =>
-                        router.push(
-                          "/agent#domain-security"
-                        )
-                      }
-                      className={
-                        securityCompleted
-                          ? "font-medium text-green-400 transition hover:text-green-300"
-                          : "font-medium text-blue-400 transition hover:text-blue-300"
-                      }
-                    >
-                      {securityCompleted
-                        ? "Completed ✓"
-                        : "Secure"}
-                    </button>
-                  </div>
-
-                  {/* STEP 5 */}
-
-                  <div className="flex items-center justify-between gap-4 rounded-xl bg-slate-950 p-4">
-
-                    <span>
-                      5. Install on your website
-                    </span>
-
-                    <button
-                      type="button"
-                      onClick={() =>
-                        router.push("/install")
-                      }
-                      className={
-                        installCompleted
-                          ? "font-medium text-green-400 transition hover:text-green-300"
-                          : "font-medium text-blue-400 transition hover:text-blue-300"
-                      }
-                    >
-                      {installCompleted
-                        ? "Completed ✓"
-                        : "Pending"}
-                    </button>
-
-                  </div>
-
-                </div>
-              </div>
-
-              {/* =====================================
-                  AGENT PREVIEW
-              ====================================== */}
-
-              <div className="rounded-2xl border border-slate-800 bg-slate-900 p-6">
-
-                <div className="flex items-center justify-between gap-4">
-
-                  <div className="flex items-center gap-3">
-
-                    <div className="flex h-11 w-11 items-center justify-center rounded-full bg-blue-600 font-bold">
-                      AI
-                    </div>
-
-                    <div>
-                      <h3 className="font-semibold">
-                        {agentName}
-                      </h3>
-
-                      <p
-                        className={`text-sm ${
-                          agentOnline
-                            ? "text-green-400"
-                            : "text-red-400"
-                        }`}
-                      >
-                        {agentOnline
-                          ? "● Online"
-                          : "● Offline"}
-                      </p>
-                    </div>
-
-                  </div>
-
-                  <button
-                    type="button"
-                    onClick={() =>
-                      router.push("/chat")
-                    }
-                    className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold transition hover:bg-blue-500"
-                  >
-                    Open Chat
-                  </button>
-
-                </div>
-
-                <div className="mt-6 rounded-xl bg-slate-950 p-5">
-
-                  <div className="max-w-xs rounded-xl bg-slate-800 p-4 text-sm">
-                    {welcomeMessage}
-                  </div>
-
-                  <div className="mt-5 flex gap-2">
-
-                    <input
-                      readOnly
-                      onClick={() =>
-                        router.push("/chat")
-                      }
-                      placeholder="Click here to open Test Chat..."
-                      className="min-w-0 flex-1 cursor-pointer rounded-xl border border-slate-800 bg-slate-900 px-4 py-3 text-sm outline-none"
-                    />
-
-                    <button
-                      type="button"
-                      onClick={() =>
-                        router.push("/chat")
-                      }
-                      className="rounded-xl bg-blue-600 px-5 text-sm font-semibold transition hover:bg-blue-500"
-                    >
-                      Chat
-                    </button>
-
-                  </div>
-
-                </div>
-              </div>
-
-            </div>
-          </div>
-        </section>
+      const { data: auth, error } = await supabase.auth.getUser(); if (error || !auth.user) { router.replace("/login"); return; }
+      const user = auth.user; setProfile({ name: user.user_metadata?.full_name ?? user.email?.split("@")[0] ?? "User", email: user.email ?? "" });
+      const [business, knowledge, conversations, responses, questions, widget, agent, session] = await Promise.all([
+        supabase.from("business_profiles").select("id", { count: "exact", head: true }).eq("user_id", user.id),
+        supabase.from("knowledge_sources").select("id", { count: "exact", head: true }).eq("user_id", user.id),
+        supabase.from("conversations").select("id,customer_name,customer_email,created_at", { count: "exact" }).eq("user_id", user.id).order("created_at", { ascending: false }).limit(20),
+        supabase.from("messages").select("id,conversations!inner(user_id)", { count: "exact", head: true }).eq("role", "assistant").eq("conversations.user_id", user.id),
+        supabase.from("messages").select("content,created_at,conversations!inner(user_id)").eq("role", "user").eq("conversations.user_id", user.id).order("created_at", { ascending: false }).limit(5),
+        supabase.from("widget_settings").select("agent_name,welcome_message,is_installed").eq("user_id", user.id).maybeSingle(),
+        supabase.from("agent_settings").select("is_active,allowed_domains").eq("user_id", user.id).maybeSingle(), supabase.auth.getSession(),
+      ]);
+      if (!active) return; setWarning([business.error, knowledge.error, conversations.error, responses.error, questions.error, widget.error, agent.error].some(Boolean));
+      let billing = emptyData.billing; const token = session.data.session?.access_token;
+      if (token) try { const response = await fetch("/api/billing", { headers: { Authorization: `Bearer ${token}` }, cache: "no-store" }); if (response.ok) { const value = await response.json(); billing = { plan: value.subscription?.plan_id ?? null, status: value.subscription?.status ?? null, used: value.usage?.messages_used ?? 0, limit: value.usage?.monthly_limit ?? 0 }; } } catch { setWarning(true); }
+      if (!active) return; const widgetRow = widget.data; const agentRow = agent.data;
+      setData({ conversations: (conversations.data ?? []) as Conversation[], questions: (questions.data ?? []).map(q => ({ content: q.content, created_at: q.created_at })), conversationCount: conversations.count ?? 0, responseCount: responses.count ?? 0, knowledgeCount: knowledge.count ?? 0, businessCompleted: (business.count ?? 0) > 0, widgetConfigured: Boolean(widgetRow), widgetInstalled: widgetRow?.is_installed === true, agentOnline: agentRow?.is_active === true, securityCompleted: Array.isArray(agentRow?.allowed_domains) && agentRow.allowed_domains.some(domain => typeof domain === "string" && Boolean(domain.trim())), agentName: widgetRow?.agent_name || emptyData.agentName, welcomeMessage: widgetRow?.welcome_message || emptyData.welcomeMessage, billing });
+    } catch { if (active) setWarning(true); } finally { if (active) setLoading(false); }
+  })(); return () => { active = false; }; }, [router]);
+
+  const activity = (() => { const days = Array.from({ length: 7 }, (_, i) => { const d = new Date(); d.setHours(0,0,0,0); d.setDate(d.getDate() - (6-i)); return d; }); const values = days.map(day => data.conversations.filter(c => { const d = new Date(c.created_at); return d >= day && d < new Date(day.getTime()+86400000); }).length); return { days, values, max: Math.max(...values, 1) }; })();
+  const go = (href: string) => { setMenuOpen(false); router.push(href); };
+  async function signOut() { if (signingOut) return; setSignOutError(""); setSigningOut(true); try { const { error } = await supabase.auth.signOut({ scope: "global" }); if (error) { setSignOutError("Could not sign out. Please try again."); return; } router.replace("/login"); } catch { setSignOutError("Could not sign out. Please try again."); } finally { setSigningOut(false); } }
+  if (loading) return <main className="grid min-h-screen place-items-center bg-[#f5f7fb] text-slate-500"><div className="flex items-center gap-3"><span className="h-5 w-5 animate-spin rounded-full border-2 border-blue-600 border-t-transparent"/>{t.loading}</div></main>;
+
+  const nav = [["grid",t.dashboard,"/dashboard"],["bot",t.openAgent,"/agent"],["book",t.knowledgeBase,"/knowledge"],["chat",t.conversations,"/conversations"],["globe",t.widget,"/widget"],["card",t.subscription,"/billing"],["gear",t.settings,"/settings"]];
+  const done = [data.businessCompleted,data.knowledgeCount>0,data.widgetConfigured,data.securityCompleted,data.widgetInstalled].filter(Boolean).length;
+  const usage = data.billing.limit > 0 ? Math.min(100, Math.round(data.billing.used/data.billing.limit*100)) : 0;
+  return <main dir={rtl ? "rtl" : "ltr"} className="min-h-screen bg-[#f5f7fb] text-[#172033]">
+    {menuOpen && <button aria-label="Close menu" className="fixed inset-0 z-30 bg-slate-950/45 lg:hidden" onClick={() => setMenuOpen(false)}/>}
+    <aside className={`fixed inset-y-0 z-40 flex w-[260px] flex-col bg-[#101b35] px-4 py-6 text-white shadow-2xl transition-transform lg:translate-x-0 ${rtl?"right-0":"left-0"} ${menuOpen?"translate-x-0":rtl?"translate-x-full":"-translate-x-full"}`}>
+      <button onClick={()=>go("/dashboard")} className="mb-8 flex items-center gap-3 px-3 text-left"><span className="grid h-10 w-10 place-items-center rounded-xl bg-gradient-to-br from-blue-500 to-indigo-600 text-sm font-black shadow-lg shadow-blue-950">AD</span><span><span className="block text-lg font-bold tracking-tight">AgentDesk AI</span><span className="block text-[10px] uppercase tracking-[.2em] text-blue-300">Smart support</span></span></button>
+      <nav className="space-y-1.5">{nav.map(([icon,label,href])=><button key={href} onClick={()=>go(href)} className={`flex w-full items-center gap-3 rounded-xl px-3.5 py-3 text-sm font-medium transition ${href==="/dashboard"?"bg-[#2864dc] text-white shadow-lg shadow-blue-950/30":"text-slate-400 hover:bg-white/7 hover:text-white"}`}><Icon name={icon}/>{label}</button>)}</nav>
+      <div className="mt-auto rounded-2xl border border-white/10 bg-white/5 p-4"><div className="mb-2 flex justify-between text-xs"><span className="text-slate-400">{t.setup}</span><span className="font-bold text-blue-300">{done}/5</span></div><div className="h-1.5 overflow-hidden rounded-full bg-white/10"><div className="h-full rounded-full bg-blue-500" style={{width:`${done*20}%`}}/></div><button onClick={()=>go("/install")} className="mt-3 flex items-center gap-2 text-xs font-semibold">{t.install}<Icon name="arrow" className={`h-3.5 w-3.5 ${rtl?"rotate-180":""}`}/></button></div>
+    </aside>
+    <section className={`min-h-screen ${rtl?"lg:mr-[260px]":"lg:ml-[260px]"}`}>
+      <header className="sticky top-0 z-20 flex h-[76px] items-center justify-between border-b border-slate-200/80 bg-white/95 px-4 backdrop-blur sm:px-7 xl:px-9"><div className="flex items-center gap-3"><button aria-label="Open menu" onClick={()=>setMenuOpen(true)} className="grid h-10 w-10 place-items-center rounded-xl border border-slate-200 lg:hidden"><Icon name="menu"/></button><div><h1 className="text-lg font-bold">{t.dashboard}</h1><p className="hidden text-xs text-slate-400 sm:block">{t.overview}</p></div></div><div className="flex items-center gap-2 sm:gap-4"><select aria-label={t.language} value={locale} onChange={e=>{const next=e.target.value as Locale;setLocale(next);localStorage.setItem("agentdesk-dashboard-language",next);}} className="rounded-lg border border-slate-200 bg-slate-50 px-2 py-2 text-xs font-semibold"><option value="en">EN</option><option value="ps">پښتو</option><option value="fa">دری</option></select><div className="hidden text-end sm:block"><p className="max-w-40 truncate text-sm font-semibold">{profile.name}</p><p className="max-w-40 truncate text-[11px] text-slate-400">{profile.email}</p></div><span className="grid h-10 w-10 place-items-center rounded-full bg-blue-100 text-sm font-bold text-blue-700">{profile.name.charAt(0).toUpperCase()}</span><button aria-label={t.signOut} onClick={signOut} disabled={signingOut} className="grid h-10 w-10 place-items-center rounded-xl text-slate-400 hover:bg-slate-100"><Icon name="logout"/><span className="sr-only">Sign Out</span></button></div></header>
+      <div className="mx-auto max-w-[1540px] p-4 sm:p-7 xl:p-9">{signOutError&&<div role="alert" className="mb-5 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{signOutError}</div>}{warning&&<div role="alert" className="mb-5 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">{t.error}</div>}
+        <div className="mb-7 flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between"><div><h2 className="text-2xl font-bold tracking-tight sm:text-3xl">{t.greeting}, {profile.name.split(" ")[0]} 👋</h2><p className="mt-2 text-sm text-slate-500">{t.subtitle}</p></div><button onClick={()=>go("/chat")} className="inline-flex items-center justify-center gap-2 rounded-xl bg-[#2864dc] px-5 py-3 text-sm font-semibold text-white shadow-lg shadow-blue-200 hover:bg-blue-700"><Icon name="chat" className="h-4 w-4"/>{t.testChat}</button></div>
+        <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-5">{[["chat",t.conversations,data.conversationCount,"bg-blue-50 text-blue-600","/conversations"],["bot",t.responses,data.responseCount,"bg-violet-50 text-violet-600","/conversations"],["users",t.leads,"—","bg-emerald-50 text-emerald-600","#leads"],["calendar",t.appointments,"—","bg-amber-50 text-amber-600","#appointments"],["book",t.knowledge,data.knowledgeCount,"bg-rose-50 text-rose-600","/knowledge"]].map(([icon,label,value,tone,href])=><button key={label} onClick={()=>typeof href==="string"&&href.startsWith("/")&&go(href)} className="rounded-2xl border border-slate-200/80 bg-white p-5 text-start shadow-[0_5px_22px_rgba(15,23,42,.05)] transition hover:-translate-y-0.5"><div className="flex items-start justify-between"><span className={`grid h-11 w-11 place-items-center rounded-xl ${tone}`}><Icon name={String(icon)}/></span><span className="text-xs font-medium text-slate-400">{typeof value==="number"?t.thisWeek:t.comingSoon}</span></div><p className="mt-5 text-3xl font-bold">{value}</p><p className="mt-1 text-sm text-slate-500">{label}</p></button>)}</div>
+        <div className="mt-5 grid gap-5 xl:grid-cols-[minmax(0,1.65fr)_minmax(300px,.85fr)]"><Card><div className="flex justify-between"><div><h3 className="font-bold">{t.activity}</h3><p className="mt-1 text-xs text-slate-400">{t.last7}</p></div><Badge icon="trend"/></div><div className="mt-8 flex h-48 items-end gap-2 sm:gap-4">{activity.values.map((value,i)=><div key={activity.days[i].toISOString()} className="flex h-full flex-1 flex-col items-center justify-end gap-2"><span className="text-xs font-semibold text-slate-500">{value||""}</span><div className="w-full max-w-12 rounded-t-lg bg-gradient-to-t from-blue-600 to-blue-400" style={{height:`${Math.max(8,value/activity.max*145)}px`,opacity:value?1:.18}}/><span className="text-[10px] font-medium uppercase text-slate-400">{activity.days[i].toLocaleDateString(locale==="en"?"en":"fa-AF",{weekday:"short"})}</span></div>)}</div></Card><Card><div className="flex justify-between"><h3 className="font-bold">{t.topQuestions}</h3><span className="rounded-full bg-slate-100 px-2.5 py-1 text-[10px] font-bold text-slate-500">LIVE</span></div><div className="mt-5 space-y-3">{data.questions.length?data.questions.map((q,i)=><div key={`${q.created_at}-${i}`} className="flex gap-3 rounded-xl bg-slate-50 p-3"><span className="grid h-7 w-7 shrink-0 place-items-center rounded-lg bg-white text-xs font-bold text-blue-600 shadow-sm">{i+1}</span><p className="line-clamp-2 text-sm leading-5 text-slate-600">{q.content}</p></div>):<Empty text={t.noQuestions}/>}</div></Card></div>
+        <div className="mt-5 grid gap-5 xl:grid-cols-3"><Card><div className="flex justify-between"><h3 className="font-bold">{t.agentStatus}</h3><span className={`rounded-full px-3 py-1 text-xs font-bold ${data.agentOnline?"bg-emerald-50 text-emerald-700":"bg-rose-50 text-rose-700"}`}>● {data.agentOnline?t.online:t.offline}</span></div><div className="mt-6 flex items-center gap-4"><span className="grid h-14 w-14 place-items-center rounded-2xl bg-[#101b35] font-black text-white">AI</span><div><p className="font-bold">{data.agentName}</p><p className="mt-1 line-clamp-1 text-xs text-slate-400">{data.welcomeMessage}</p></div></div><Action onClick={()=>go("/agent")} label={t.openAgent} rtl={rtl}/></Card><Card><div className="flex justify-between"><h3 className="font-bold">{t.knowledgeBase}</h3><Badge icon="book"/></div><p className="mt-6 text-3xl font-bold">{data.knowledgeCount}</p><p className="mt-1 text-sm text-slate-500">{t.sourcesReady}</p><Action onClick={()=>go("/knowledge")} label={t.manage} rtl={rtl}/></Card><Card><div className="flex justify-between"><h3 className="font-bold">{t.widget}</h3><span className={`rounded-full px-3 py-1 text-xs font-bold ${data.widgetInstalled?"bg-emerald-50 text-emerald-700":"bg-amber-50 text-amber-700"}`}>{data.widgetInstalled?t.installed:t.notInstalled}</span></div><div className="mt-6 rounded-xl border border-slate-200 bg-slate-50 p-4"><div className="flex items-center gap-3"><span className="grid h-10 w-10 place-items-center rounded-full bg-blue-600 text-xs font-black text-white">AI</span><div className="h-2.5 w-24 rounded-full bg-slate-200"/></div><div className="mt-4 h-9 rounded-lg bg-white shadow-sm"/></div><Action onClick={()=>go("/widget")} label={t.customize} rtl={rtl}/></Card></div>
+        <div className="mt-5 grid gap-5 xl:grid-cols-[minmax(0,1.5fr)_minmax(300px,1fr)]"><Card><div className="flex justify-between"><h3 className="font-bold">{t.recent}</h3><button onClick={()=>go("/conversations")} className="text-xs font-bold text-blue-600">{t.viewAll}</button></div><div className="mt-4 divide-y divide-slate-100">{data.conversations.slice(0,5).map(c=><button key={c.id} onClick={()=>go("/conversations")} className="flex w-full items-center gap-3 py-3.5 text-start"><span className="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-blue-50 text-xs font-bold text-blue-700">{(c.customer_name||"V").charAt(0).toUpperCase()}</span><span className="min-w-0 flex-1"><span className="block truncate text-sm font-semibold">{c.customer_name||"Website visitor"}</span><span className="block truncate text-xs text-slate-400">{c.customer_email||t.conversations}</span></span><time className="text-[11px] text-slate-400">{new Date(c.created_at).toLocaleDateString(locale==="en"?"en":"fa-AF",{month:"short",day:"numeric"})}</time></button>)}{!data.conversations.length&&<Empty text={t.noConversations}/>}</div></Card><section className="overflow-hidden rounded-2xl bg-gradient-to-br from-[#17264b] to-[#10182e] p-5 text-white shadow-xl shadow-slate-300 sm:p-6"><div className="flex justify-between"><div><p className="text-xs font-semibold uppercase tracking-wider text-blue-300">{t.subscription}</p><h3 className="mt-2 text-2xl font-bold capitalize">{data.billing.plan?`${data.billing.plan} plan`:"—"}</h3></div><span className="grid h-11 w-11 place-items-center rounded-xl bg-white/10"><Icon name="card"/></span></div><div className="mt-8"><div className="mb-2 flex justify-between text-xs"><span className="text-slate-300">{t.usage}</span><span className="font-bold">{data.billing.limit?`${data.billing.used.toLocaleString()} / ${data.billing.limit.toLocaleString()}`:"—"}</span></div><div className="h-2 overflow-hidden rounded-full bg-white/10"><div className="h-full rounded-full bg-blue-400" style={{width:`${usage}%`}}/></div><button onClick={()=>go("/billing")} className="mt-6 flex w-full justify-between rounded-xl bg-white/10 px-4 py-3 text-sm font-semibold hover:bg-white/15"><span>{t.billing}</span><Icon name="arrow" className={`h-4 w-4 ${rtl?"rotate-180":""}`}/></button></div></section></div>
+        <div className="mt-5 grid gap-5 lg:grid-cols-2"><ComingSoon id="appointments" icon="calendar" title={t.appointments} text={t.noData} badge={t.comingSoon}/><ComingSoon id="leads" icon="users" title={t.leads} text={t.noData} badge={t.comingSoon}/></div>
       </div>
-    </main>
-  );
+    </section>
+  </main>;
 }
+
+function Card({children}:{children:ReactNode}) { return <section className="rounded-2xl border border-slate-200/80 bg-white p-5 shadow-[0_5px_22px_rgba(15,23,42,.05)] sm:p-6">{children}</section>; }
+function Badge({icon}:{icon:string}) { return <span className="grid h-10 w-10 place-items-center rounded-xl bg-blue-50 text-blue-600"><Icon name={icon}/></span>; }
+function Empty({text}:{text:string}) { return <div className="grid min-h-28 place-items-center rounded-xl border border-dashed border-slate-200 p-5 text-center text-sm text-slate-400">{text}</div>; }
+function Action({onClick,label,rtl}:{onClick:()=>void;label:string;rtl:boolean}) { return <button onClick={onClick} className="mt-5 flex w-full items-center justify-between border-t border-slate-100 pt-4 text-sm font-bold text-blue-600"><span>{label}</span><Icon name="arrow" className={`h-4 w-4 ${rtl?"rotate-180":""}`}/></button>; }
+function ComingSoon({id,icon,title,text,badge}:{id:string;icon:string;title:string;text:string;badge:string}) { return <section id={id} className="rounded-2xl border border-slate-200/80 bg-white p-5 shadow-[0_5px_22px_rgba(15,23,42,.05)] sm:p-6"><div className="flex items-center gap-3"><Badge icon={icon}/><div className="flex-1"><h3 className="font-bold">{title}</h3><p className="mt-0.5 text-xs text-slate-400">{text}</p></div><span className="rounded-full bg-blue-50 px-3 py-1 text-[10px] font-bold uppercase text-blue-600">{badge}</span></div></section>; }

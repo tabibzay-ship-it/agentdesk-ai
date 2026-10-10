@@ -1,763 +1,84 @@
 "use client";
 
-import {
-  FormEvent,
-  useEffect,
-  useRef,
-  useState,
-} from "react";
+/* eslint-disable @next/next/no-img-element -- previews are authenticated blob URLs, not public assets */
 
+import { FormEvent, KeyboardEvent, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { supabase } from "../../lib/supabase";
-
-type ChatMessage = {
-  id: string;
-  role: "user" | "assistant";
-  content: string;
-};
-
-type UsageInfo = {
-  plan: string;
-  used: number;
-  limit: number;
-  remaining: number;
-};
-
-export default function ChatPage() {
-  const router = useRouter();
-
-  const [loading, setLoading] = useState(true);
-  const [sending, setSending] = useState(false);
-
-  const [userId, setUserId] = useState("");
-  const [publicAgentId, setPublicAgentId] =
-    useState("");
-
-  const [agentName, setAgentName] =
-    useState("AI Support Assistant");
-
-  const [welcomeMessage, setWelcomeMessage] =
-    useState(
-      "Hi! 👋 How can I help you today?"
-    );
-
-  const [agentOnline, setAgentOnline] =
-    useState(true);
-
-  const [message, setMessage] = useState("");
-
-  const [messages, setMessages] = useState<
-    ChatMessage[]
-  >([]);
-
-  const [usage, setUsage] =
-    useState<UsageInfo | null>(null);
-
-  const [error, setError] = useState("");
-
-  const bottomRef =
-    useRef<HTMLDivElement | null>(null);
-
-  // =========================================
-  // LOAD CHAT
-  // =========================================
-
-  useEffect(() => {
-    async function loadChat() {
-      try {
-        const {
-          data: { user },
-          error: userError,
-        } = await supabase.auth.getUser();
-
-        if (userError || !user) {
-          router.replace("/login");
-          return;
-        }
-
-        setUserId(user.id);
-
-        // =====================================
-        // LOAD WIDGET SETTINGS
-        // =====================================
-
-        const {
-          data: widget,
-          error: widgetError,
-        } = await supabase
-          .from("widget_settings")
-          .select(
-            `
-            agent_name,
-            welcome_message
-            `
-          )
-          .eq("user_id", user.id)
-          .maybeSingle();
-
-        if (widgetError) {
-          console.error(
-            "Widget settings error:",
-            widgetError
-          );
-        }
-
-        if (widget) {
-          setAgentName(
-            widget.agent_name ||
-              "AI Support Assistant"
-          );
-
-          setWelcomeMessage(
-            widget.welcome_message ||
-              "Hi! 👋 How can I help you today?"
-          );
-        }
-
-        // =====================================
-        // LOAD AGENT SETTINGS + PUBLIC ID
-        // =====================================
-
-        const {
-          data: agentSettings,
-          error: agentError,
-        } = await supabase
-          .from("agent_settings")
-          .select(
-            `
-            is_active,
-            public_agent_id
-            `
-          )
-          .eq("user_id", user.id)
-          .maybeSingle();
-
-        if (agentError) {
-          console.error(
-            "Agent settings error:",
-            agentError
-          );
-
-          setError(
-            "Could not load AI Agent settings."
-          );
-        }
-
-        if (agentSettings) {
-          setAgentOnline(
-            agentSettings.is_active === true
-          );
-
-          if (
-            agentSettings.public_agent_id
-          ) {
-            setPublicAgentId(
-              agentSettings.public_agent_id
-            );
-          } else {
-            setError(
-              "Public Agent ID is not available."
-            );
-          }
-        } else {
-          setError(
-            "AI Agent settings were not found."
-          );
-        }
-
-        // =====================================
-        // LOAD USAGE
-        // =====================================
-
-        const {
-          data: usageData,
-          error: usageError,
-        } = await supabase
-          .from("usage_limits")
-          .select(
-            `
-            plan,
-            monthly_limit,
-            messages_used
-            `
-          )
-          .eq("user_id", user.id)
-          .maybeSingle();
-
-        if (usageError) {
-          console.error(
-            "Usage load error:",
-            usageError
-          );
-        }
-
-        if (usageData) {
-          setUsage({
-            plan: usageData.plan,
-            used: usageData.messages_used,
-            limit: usageData.monthly_limit,
-            remaining: Math.max(
-              usageData.monthly_limit -
-                usageData.messages_used,
-              0
-            ),
-          });
-        }
-      } catch (loadError) {
-        console.error(
-          "Chat loading error:",
-          loadError
-        );
-
-        setError(
-          "Could not load the Test Chat."
-        );
-      } finally {
-        setLoading(false);
-      }
-    }
-
-    loadChat();
-  }, [router]);
-
-  // =========================================
-  // AUTO SCROLL
-  // =========================================
-
-  useEffect(() => {
-    bottomRef.current?.scrollIntoView({
-      behavior: "smooth",
-    });
-  }, [messages, sending]);
-
-  // =========================================
-  // CREATE TEST VISITOR ID
-  // =========================================
-
-  function getVisitorId() {
-    const storageKey =
-      `agentdesk-dashboard-test-visitor:${userId}:${publicAgentId}`;
-
-    let visitorId =
-      localStorage.getItem(storageKey);
-
-    if (!visitorId || !/^dashboard-test-[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(visitorId)) {
-      visitorId =
-        "dashboard-test-" +
-        crypto.randomUUID();
-
-      localStorage.setItem(
-        storageKey,
-        visitorId
-      );
-    }
-
-    return visitorId;
-  }
-
-  // =========================================
-  // SEND MESSAGE
-  // =========================================
-
-  async function handleSend(
-    event: FormEvent
-  ) {
-    event.preventDefault();
-
-    const cleanMessage = message.trim();
-
-    if (
-      !cleanMessage ||
-      sending ||
-      !userId ||
-      !publicAgentId
-    ) {
-      if (!publicAgentId) {
-        setError(
-          "Public Agent ID is not available."
-        );
-      }
-
-      return;
-    }
-
-    if (!agentOnline) {
-      setError(
-        "Your AI Agent is currently offline."
-      );
-      return;
-    }
-
-    if (
-      usage &&
-      usage.remaining <= 0
-    ) {
-      setError(
-        "Monthly AI message limit reached."
-      );
-      return;
-    }
-
-    const customerMessage: ChatMessage = {
-      id: crypto.randomUUID(),
-      role: "user",
-      content: cleanMessage,
-    };
-
-    setMessages((current) => [
-      ...current,
-      customerMessage,
-    ]);
-
-    setMessage("");
-    setError("");
-    setSending(true);
-
-    try {
-      const response = await fetch(
-        "/api/chat",
-        {
-          method: "POST",
-
-          headers: {
-            "Content-Type":
-              "application/json",
-          },
-
-          body: JSON.stringify({
-            message: cleanMessage,
-            agentId: publicAgentId,
-            visitorId: getVisitorId(),
-          }),
-        }
-      );
-
-      const data = await response.json();
-
-      if (!response.ok) {
-        if (data.limitReached) {
-          setUsage({
-            plan:
-              data.plan ||
-              usage?.plan ||
-              "free",
-
-            used:
-              data.used ??
-              usage?.used ??
-              0,
-
-            limit:
-              data.limit ??
-              usage?.limit ??
-              100,
-
-            remaining: 0,
-          });
-
-          throw new Error(
-            "Monthly AI message limit reached."
-          );
-        }
-
-        if (data.offline) {
-          setAgentOnline(false);
-
-          throw new Error(
-            "Your AI Agent is currently offline."
-          );
-        }
-
-        if (data.rateLimited) {
-          throw new Error(
-            "Too many messages. Please wait a minute and try again."
-          );
-        }
-
-        throw new Error(
-          data.error ||
-            "AI response failed."
-        );
-      }
-
-      const aiMessage: ChatMessage = {
-        id: crypto.randomUUID(),
-        role: "assistant",
-        content: data.reply,
-      };
-
-      setMessages((current) => [
-        ...current,
-        aiMessage,
-      ]);
-
-      if (data.usage) {
-        setUsage({
-          plan:
-            data.usage.plan ||
-            "free",
-
-          used:
-            data.usage.used ?? 0,
-
-          limit:
-            data.usage.limit ?? 100,
-
-          remaining:
-            data.usage.remaining ?? 0,
-        });
-      }
-    } catch (sendError) {
-      console.error(
-        "Send message error:",
-        sendError
-      );
-
-      setError(
-        sendError instanceof Error
-          ? sendError.message
-          : "Something went wrong."
-      );
-    } finally {
-      setSending(false);
-    }
-  }
-
-  // =========================================
-  // CLEAR LOCAL CHAT
-  // =========================================
-
-  function clearChat() {
-    if (sending) return;
-    setMessages([]);
-    setError("");
-
-    localStorage.removeItem(
-      `agentdesk-dashboard-test-visitor:${userId}:${publicAgentId}`
-    );
-  }
-
-  // =========================================
-  // LOADING
-  // =========================================
-
-  if (loading) {
-    return (
-      <main className="flex min-h-screen items-center justify-center bg-slate-950 text-white">
-        <p className="text-slate-400">
-          Loading Test Chat...
-        </p>
-      </main>
-    );
-  }
-
-  // =========================================
-  // PAGE
-  // =========================================
-
-  return (
-    <main className="min-h-screen bg-slate-950 text-white">
-      <div className="flex min-h-screen">
-
-        {/* SIDEBAR */}
-
-        <aside className="hidden w-64 border-r border-slate-800 bg-slate-900 p-5 md:block">
-          <div className="mb-10 text-2xl font-bold">
-            AgentDesk{" "}
-            <span className="text-blue-500">
-              AI
-            </span>
-          </div>
-
-          <nav className="space-y-2">
-            <button
-              type="button"
-              onClick={() =>
-                router.push("/dashboard")
-              }
-              className="w-full rounded-xl px-4 py-3 text-left text-slate-400 transition hover:bg-slate-800 hover:text-white"
-            >
-              Dashboard
-            </button>
-
-            <button
-              type="button"
-              onClick={() =>
-                router.push("/agent")
-              }
-              className="w-full rounded-xl px-4 py-3 text-left text-slate-400 transition hover:bg-slate-800 hover:text-white"
-            >
-              AI Agent
-            </button>
-
-            <button
-              type="button"
-              onClick={() =>
-                router.push("/knowledge")
-              }
-              className="w-full rounded-xl px-4 py-3 text-left text-slate-400 transition hover:bg-slate-800 hover:text-white"
-            >
-              Knowledge Base
-            </button>
-
-            <button
-              type="button"
-              onClick={() =>
-                router.push(
-                  "/conversations"
-                )
-              }
-              className="w-full rounded-xl px-4 py-3 text-left text-slate-400 transition hover:bg-slate-800 hover:text-white"
-            >
-              Conversations
-            </button>
-
-            <button
-              type="button"
-              className="w-full rounded-xl bg-blue-600 px-4 py-3 text-left font-medium"
-            >
-              💬 Test Chat
-            </button>
-
-            <button
-              type="button"
-              onClick={() =>
-                router.push("/widget")
-              }
-              className="w-full rounded-xl px-4 py-3 text-left text-slate-400 transition hover:bg-slate-800 hover:text-white"
-            >
-              Website Widget
-            </button>
-
-            <button
-              type="button"
-              onClick={() =>
-                router.push("/settings")
-              }
-              className="w-full rounded-xl px-4 py-3 text-left text-slate-400 transition hover:bg-slate-800 hover:text-white"
-            >
-              Settings
-            </button>
-          </nav>
-        </aside>
-
-        {/* MAIN CONTENT */}
-
-        <section className="flex min-w-0 flex-1 flex-col">
-
-          {/* HEADER */}
-
-          <header className="flex items-center justify-between border-b border-slate-800 px-5 py-5 lg:px-10">
-            <div>
-              <h1 className="text-xl font-semibold">
-                Test Chat
-              </h1>
-
-              <p className="mt-1 text-sm text-slate-500">
-                Test your AI support agent.
-              </p>
-            </div>
-
-            <button
-              type="button"
-              onClick={() =>
-                router.push("/dashboard")
-              }
-              className="rounded-lg border border-slate-700 px-4 py-2 text-sm transition hover:bg-slate-800"
-            >
-              Back to Dashboard
-            </button>
-          </header>
-
-          {/* CONTENT */}
-
-          <div className="flex flex-1 justify-center p-4 md:p-6 lg:p-10">
-            <div className="flex w-full max-w-4xl flex-col">
-
-              {/* USAGE */}
-
-              <div className="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-slate-800 bg-slate-900 px-5 py-4">
-                <div>
-                  <p className="text-sm font-medium">
-                    Monthly AI Usage
-                  </p>
-
-                  <p className="mt-1 text-xs text-slate-500">
-                    Each successful AI reply uses
-                    one message.
-                  </p>
-                </div>
-
-                <div className="text-right">
-                  <p className="font-semibold">
-                    {usage
-                      ? `${usage.used} / ${usage.limit}`
-                      : "0 / 100"}
-                  </p>
-
-                  <p className="text-xs text-slate-500">
-                    {usage
-                      ? `${usage.remaining} remaining`
-                      : "100 remaining"}
-                  </p>
-                </div>
-              </div>
-
-              {/* CHAT BOARD */}
-
-              <div className="flex min-h-[650px] flex-1 flex-col overflow-hidden rounded-2xl border border-slate-800 bg-slate-900 shadow-2xl">
-
-                {/* CHAT HEADER */}
-
-                <div className="flex items-center justify-between border-b border-slate-800 px-5 py-4">
-                  <div className="flex items-center gap-3">
-                    <div className="flex h-11 w-11 items-center justify-center rounded-full bg-blue-600 font-bold">
-                      AI
-                    </div>
-
-                    <div>
-                      <h2 className="font-semibold">
-                        {agentName}
-                      </h2>
-
-                      <p
-                        className={`text-xs ${
-                          agentOnline
-                            ? "text-green-400"
-                            : "text-red-400"
-                        }`}
-                      >
-                        {agentOnline
-                          ? "● Online"
-                          : "● Offline"}
-                      </p>
-                    </div>
-                  </div>
-
-                  <button
-                    type="button"
-                    onClick={clearChat}
-                    disabled={sending}
-                    className="rounded-lg border border-slate-700 px-3 py-2 text-xs text-slate-300 transition hover:bg-slate-800"
-                  >
-                    Clear Chat
-                  </button>
-                </div>
-
-                {/* MESSAGES */}
-
-                <div className="flex-1 overflow-y-auto p-5">
-                  <div className="space-y-4">
-
-                    <div className="flex justify-start">
-                      <div className="max-w-[80%] rounded-2xl rounded-tl-md bg-slate-800 px-4 py-3 text-sm leading-6">
-                        {welcomeMessage}
-                      </div>
-                    </div>
-
-                    {messages.map(
-                      (chatMessage) => (
-                        <div
-                          key={chatMessage.id}
-                          className={`flex ${
-                            chatMessage.role ===
-                            "user"
-                              ? "justify-end"
-                              : "justify-start"
-                          }`}
-                        >
-                          <div
-                            className={`max-w-[80%] whitespace-pre-wrap rounded-2xl px-4 py-3 text-sm leading-6 ${
-                              chatMessage.role ===
-                              "user"
-                                ? "rounded-tr-md bg-blue-600 text-white"
-                                : "rounded-tl-md bg-slate-800 text-slate-100"
-                            }`}
-                          >
-                            {
-                              chatMessage.content
-                            }
-                          </div>
-                        </div>
-                      )
-                    )}
-
-                    {sending && (
-                      <div className="flex justify-start">
-                        <div className="rounded-2xl rounded-tl-md bg-slate-800 px-4 py-3 text-sm text-slate-400">
-                          AI is typing...
-                        </div>
-                      </div>
-                    )}
-
-                    <div ref={bottomRef} />
-                  </div>
-                </div>
-
-                {/* ERROR */}
-
-                {error && (
-                  <div className="border-t border-red-900/50 bg-red-950/30 px-5 py-3 text-sm text-red-400">
-                    {error}
-                  </div>
-                )}
-
-                {/* INPUT */}
-
-                <form
-                  onSubmit={handleSend}
-                  className="border-t border-slate-800 p-4"
-                >
-                  <div className="flex gap-3">
-                    <input
-                      type="text"
-                      value={message}
-                      onChange={(event) =>
-                        setMessage(
-                          event.target.value
-                        )
-                      }
-                      maxLength={2000}
-                      disabled={
-                        sending ||
-                        !agentOnline ||
-                        !publicAgentId
-                      }
-                      placeholder={
-                        !publicAgentId
-                          ? "Public Agent ID unavailable"
-                          : agentOnline
-                            ? "Type your message..."
-                            : "AI Agent is offline"
-                      }
-                      className="min-w-0 flex-1 rounded-xl border border-slate-700 bg-slate-950 px-4 py-3 text-sm text-white outline-none transition placeholder:text-slate-600 focus:border-blue-500 disabled:cursor-not-allowed disabled:opacity-50"
-                    />
-
-                    <button
-                      type="submit"
-                      disabled={
-                        sending ||
-                        !message.trim() ||
-                        !agentOnline ||
-                        !publicAgentId
-                      }
-                      className="rounded-xl bg-blue-600 px-6 py-3 text-sm font-semibold transition hover:bg-blue-500 disabled:cursor-not-allowed disabled:opacity-50"
-                    >
-                      {sending
-                        ? "Sending..."
-                        : "Send"}
-                    </button>
-                  </div>
-
-                  <p className="mt-2 text-xs text-slate-600">
-                    Maximum 2,000 characters
-                  </p>
-                </form>
-              </div>
-            </div>
-          </div>
-        </section>
-      </div>
-    </main>
-  );
+import { supabase } from "@/lib/supabase";
+
+type Attachment = { id:string; name:string; mimeType:string; size:number; kind:"image"|"document"; status:string; downloadUrl:string; previewUrl?:string; progress?:number };
+type ChatMessage = { id:string; role:"user"|"assistant"; content:string; attachments?:Attachment[] };
+type UsageInfo = { plan:string; used:number; limit:number; remaining:number };
+const FILE_ACCEPT=".pdf,.docx,.xlsx,.pptx,.txt,.csv,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.openxmlformats-officedocument.presentationml.presentation,text/plain,text/csv";
+const IMAGE_ACCEPT="image/jpeg,image/png,image/webp,.jpg,.jpeg,.png,.webp";
+const MAX_FILES=5;
+type Locale="en"|"ps"|"fa";
+const labels={
+  en:{title:"Test chat",subtitle:"Securely test your AI agent",usage:"Monthly usage",clear:"Clear Chat",placeholder:"Message your AI agent",photos:"Add photos",files:"Add files",hint:"Enter to send · Shift+Enter for new line",privacy:"Private files · maximum 5 files · 10 MB each",online:"Online",offline:"Offline",ready:"Ready",drop:"Drop files to attach"},
+  ps:{title:"ازمایښتي چټ",subtitle:"خپل AI استازی په خوندي ډول وازمویئ",usage:"میاشتنی استعمال",clear:"چټ پاک کړئ",placeholder:"خپل AI استازي ته پیغام ولیکئ",photos:"انځورونه ورزیات کړئ",files:"فایلونه ورزیات کړئ",hint:"Enter د لېږلو لپاره · Shift+Enter نوې کرښه",privacy:"شخصي فایلونه · تر ۵ فایلونو · هر یو ۱۰ MB",online:"فعال",offline:"غیرفعال",ready:"چمتو",drop:"فایلونه دلته پرېږدئ"},
+  fa:{title:"چت آزمایشی",subtitle:"عامل هوش مصنوعی را امن آزمایش کنید",usage:"استفاده ماهانه",clear:"پاک کردن چت",placeholder:"به عامل هوش مصنوعی پیام دهید",photos:"افزودن تصویر",files:"افزودن فایل",hint:"Enter برای ارسال · Shift+Enter خط جدید",privacy:"فایل‌های خصوصی · حداکثر ۵ فایل · هر فایل ۱۰ MB",online:"فعال",offline:"غیرفعال",ready:"آماده",drop:"فایل‌ها را اینجا رها کنید"},
+} as const;
+
+function Icon({name,className="h-5 w-5"}:{name:string;className?:string}) {
+  const paths:Record<string,React.ReactNode>={plus:<><path d="M12 5v14M5 12h14"/></>,send:<><path d="m22 2-7 20-4-9-9-4Z"/><path d="M22 2 11 13"/></>,file:<><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8Z"/><path d="M14 2v6h6"/></>,image:<><rect x="3" y="3" width="18" height="18" rx="3"/><circle cx="8.5" cy="8.5" r="1.5"/><path d="m21 15-5-5L5 21"/></>,close:<><path d="m18 6-12 12M6 6l12 12"/></>,back:<path d="m15 18-6-6 6-6"/>,trash:<><path d="M3 6h18M8 6V4h8v2M19 6l-1 15H6L5 6M10 11v5M14 11v5"/></>,download:<><path d="M12 3v12m0 0 4-4m-4 4-4-4M5 21h14"/></>};
+  return <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" className={className}>{paths[name]}</svg>;
 }
+function visitorKey(userId:string,agentId:string){return `agentdesk-dashboard-test-visitor:${userId}:${agentId}`;}
+function ensureVisitor(userId:string,agentId:string){const key=visitorKey(userId,agentId);let value=localStorage.getItem(key);if(!value||!/^dashboard-test-[0-9a-f-]{36}$/i.test(value)){value=`dashboard-test-${crypto.randomUUID()}`;localStorage.setItem(key,value);}return value;}
+function formatBytes(size:number){return size<1024*1024?`${Math.ceil(size/1024)} KB`:`${(size/1024/1024).toFixed(1)} MB`;}
+
+export default function ChatPage(){
+  const router=useRouter();
+  const [loading,setLoading]=useState(true),[sending,setSending]=useState(false),[dragging,setDragging]=useState(false),[menu,setMenu]=useState(false);
+  const [userId,setUserId]=useState(""),[publicAgentId,setPublicAgentId]=useState(""),[visitorId,setVisitorId]=useState("");
+  const [agentName,setAgentName]=useState("AI Support Assistant"),[welcome,setWelcome]=useState("Hi! 👋 How can I help you today?"),[agentOnline,setAgentOnline]=useState(true);
+  const [message,setMessage]=useState(""),[messages,setMessages]=useState<ChatMessage[]>([]),[attachments,setAttachments]=useState<Attachment[]>([]),[usage,setUsage]=useState<UsageInfo|null>(null),[error,setError]=useState("");
+  const [locale]=useState<Locale>(()=>{if(typeof window==="undefined")return "en";const value=localStorage.getItem("agentdesk-dashboard-language");return value==="ps"||value==="fa"?value:"en";});const t=labels[locale],rtl=locale!=="en";
+  const bottom=useRef<HTMLDivElement|null>(null),imageInput=useRef<HTMLInputElement|null>(null),fileInput=useRef<HTMLInputElement|null>(null);
+
+  useEffect(()=>{void(async()=>{try{
+    const {data:{user},error:authError}=await supabase.auth.getUser();if(authError||!user){router.replace("/login");return;}setUserId(user.id);
+    const [widget,agent,quota]=await Promise.all([supabase.from("widget_settings").select("agent_name,welcome_message").eq("user_id",user.id).maybeSingle(),supabase.from("agent_settings").select("is_active,public_agent_id").eq("user_id",user.id).maybeSingle(),supabase.from("usage_limits").select("plan,monthly_limit,messages_used").eq("user_id",user.id).maybeSingle()]);
+    if(widget.data){setAgentName(widget.data.agent_name||"AI Support Assistant");setWelcome(widget.data.welcome_message||"Hi! 👋 How can I help you today?");}if(!agent.data?.public_agent_id){setError("Public Agent ID is not available.");return;}
+    setAgentOnline(agent.data.is_active===true);setPublicAgentId(agent.data.public_agent_id);const visitor=ensureVisitor(user.id,agent.data.public_agent_id);setVisitorId(visitor);
+    if(quota.data)setUsage({plan:quota.data.plan,used:quota.data.messages_used,limit:quota.data.monthly_limit,remaining:Math.max(quota.data.monthly_limit-quota.data.messages_used,0)});
+    const {data:session}=await supabase.auth.getSession();if(session.session?.access_token){const response=await fetch(`/api/chat/history?agentId=${encodeURIComponent(agent.data.public_agent_id)}&visitorId=${encodeURIComponent(visitor)}`,{headers:{Authorization:`Bearer ${session.session.access_token}`},cache:"no-store"});if(response.ok){const body=await response.json();setMessages(body.messages??[]);}}
+  }catch{setError("Could not load the test chat.");}finally{setLoading(false);}})();},[router]);
+  useEffect(()=>{bottom.current?.scrollIntoView({behavior:"smooth"});},[messages,sending]);
+
+  async function uploadFiles(files:File[]){setMenu(false);setError("");if(!publicAgentId)return;const activeVisitor=visitorId||ensureVisitor(userId,publicAgentId);if(!visitorId)setVisitorId(activeVisitor);const room=MAX_FILES-attachments.length;if(room<=0){setError(`You can attach up to ${MAX_FILES} files.`);return;}
+    for(const file of files.slice(0,room)){const tempId=crypto.randomUUID(),previewUrl=file.type.startsWith("image/")?URL.createObjectURL(file):undefined;setAttachments(current=>[...current,{id:tempId,name:file.name,mimeType:file.type,size:file.size,kind:file.type.startsWith("image/")?"image":"document",status:"uploading",downloadUrl:"",previewUrl,progress:0}]);
+      try{const {data}=await supabase.auth.getSession();const token=data.session?.access_token;if(!token)throw new Error("Your session has expired.");const form=new FormData();form.append("file",file);form.append("agentId",publicAgentId);form.append("visitorId",activeVisitor);
+        const uploaded=await new Promise<Attachment>((resolve,reject)=>{const xhr=new XMLHttpRequest();xhr.open("POST","/api/chat/attachments");xhr.setRequestHeader("Authorization",`Bearer ${token}`);xhr.upload.onprogress=e=>{if(e.lengthComputable)setAttachments(current=>current.map(item=>item.id===tempId?{...item,progress:Math.round(e.loaded/e.total*100)}:item));};xhr.onload=()=>{try{const body=JSON.parse(xhr.responseText);if(xhr.status<200||xhr.status>=300)reject(new Error(body.error||"Upload failed."));else resolve(body.attachment);}catch{reject(new Error("Upload failed."));}};xhr.onerror=()=>reject(new Error("Upload failed."));xhr.send(form);});
+        setAttachments(current=>current.map(item=>item.id===tempId?{...uploaded,previewUrl,progress:100}:item));
+      }catch(reason){if(previewUrl)URL.revokeObjectURL(previewUrl);setAttachments(current=>current.filter(item=>item.id!==tempId));setError(reason instanceof Error?reason.message:"Upload failed.");}}
+  }
+  async function removeAttachment(item:Attachment){if(item.status==="uploading")return;const {data}=await supabase.auth.getSession();const token=data.session?.access_token;if(!token)return;const response=await fetch(`/api/chat/attachments/${item.id}`,{method:"DELETE",headers:{Authorization:`Bearer ${token}`}});if(!response.ok){const body=await response.json();setError(body.error||"Could not remove attachment.");return;}if(item.previewUrl)URL.revokeObjectURL(item.previewUrl);setAttachments(current=>current.filter(value=>value.id!==item.id));}
+  async function downloadAttachment(item:Attachment){const {data}=await supabase.auth.getSession();const token=data.session?.access_token;if(!token)return;const response=await fetch(item.downloadUrl,{headers:{Authorization:`Bearer ${token}`}});if(!response.ok){setError("Could not download attachment.");return;}const url=URL.createObjectURL(await response.blob()),link=document.createElement("a");link.href=url;link.download=item.name;link.click();setTimeout(()=>URL.revokeObjectURL(url),1000);}
+  async function handleSend(event?:FormEvent){event?.preventDefault();const clean=message.trim(),ready=attachments.filter(item=>item.status==="ready");if((!clean&&!ready.length)||sending||attachments.some(item=>item.status==="uploading"))return;if(!agentOnline||usage?.remaining===0){setError(!agentOnline?"Your AI Agent is offline.":"Monthly AI message limit reached.");return;}const activeVisitor=visitorId||ensureVisitor(userId,publicAgentId);if(!visitorId)setVisitorId(activeVisitor);
+    setMessages(current=>[...current,{id:crypto.randomUUID(),role:"user",content:clean,attachments:ready}]);setMessage("");setAttachments([]);setError("");setSending(true);
+    try{let token:string|undefined;if(ready.length){const {data}=await supabase.auth.getSession();token=data.session?.access_token;}const response=await fetch("/api/chat",{method:"POST",headers:{"Content-Type":"application/json",...(token?{Authorization:`Bearer ${token}`}:{})},body:JSON.stringify({message:clean,agentId:publicAgentId,visitorId:activeVisitor,attachmentIds:ready.map(item=>item.id)})});const body=await response.json();if(!response.ok)throw new Error(body.error||"AI response failed.");setMessages(current=>[...current,{id:crypto.randomUUID(),role:"assistant",content:body.reply}]);if(body.usage)setUsage({plan:body.usage.plan,used:body.usage.used,limit:body.usage.limit,remaining:body.usage.remaining});}catch(reason){setError(reason instanceof Error?reason.message:"Something went wrong.");}finally{setSending(false);}}
+  function keyDown(event:KeyboardEvent<HTMLTextAreaElement>){if(event.key==="Enter"&&!event.shiftKey&&!event.nativeEvent.isComposing){event.preventDefault();void handleSend();}}
+  function clearChat(){if(sending||attachments.length)return;setMessages([]);setError("");localStorage.removeItem(visitorKey(userId,publicAgentId));setVisitorId("");}
+
+  if(loading)return <main className="grid min-h-screen place-items-center bg-[#f5f7fb]"><span className="h-6 w-6 animate-spin rounded-full border-2 border-blue-600 border-t-transparent"/></main>;
+  return <main dir={rtl?"rtl":"ltr"} className="min-h-screen bg-[#f5f7fb] text-[#172033]"><section className="mx-auto flex min-h-screen max-w-[1500px] flex-col">
+    <header className="flex h-[72px] items-center justify-between border-b border-slate-200 bg-white px-4 sm:px-7"><div className="flex items-center gap-3"><button onClick={()=>router.push("/dashboard")} aria-label="Back to dashboard" className="grid h-10 w-10 place-items-center rounded-xl border border-slate-200 hover:bg-slate-50"><Icon name="back"/></button><div><h1 className="font-bold">{t.title}</h1><p className="text-xs text-slate-400">{t.subtitle}</p></div></div><div className="flex items-center gap-3"><div className="hidden text-end sm:block"><p className="text-sm font-semibold">{agentName}</p><p className={`text-xs ${agentOnline?"text-emerald-600":"text-rose-600"}`}>● {agentOnline?t.online:t.offline}</p></div><span className="grid h-10 w-10 place-items-center rounded-xl bg-[#101b35] text-xs font-black text-white">AI</span></div></header>
+    <div className="flex min-h-0 flex-1 flex-col lg:grid lg:grid-cols-[250px_minmax(0,1fr)]"><aside className={`hidden bg-white p-5 lg:block ${rtl?"border-l":"border-r"} border-slate-200`}><button onClick={()=>router.push("/dashboard")} className="mb-7 flex items-center gap-3"><span className="grid h-10 w-10 place-items-center rounded-xl bg-blue-600 text-xs font-black text-white">AD</span><b>AgentDesk AI</b></button><div className="rounded-2xl bg-slate-50 p-4"><p className="text-xs font-semibold uppercase tracking-wider text-slate-400">{t.usage}</p><p className="mt-2 text-2xl font-bold">{usage?`${usage.used} / ${usage.limit}`:"—"}</p><div className="mt-3 h-1.5 overflow-hidden rounded-full bg-slate-200"><div className="h-full bg-blue-600" style={{width:`${usage?.limit?Math.min(100,usage.used/usage.limit*100):0}%`}}/></div><p className="mt-2 text-xs capitalize text-slate-400">{usage?.plan||"free"} plan</p></div><button onClick={clearChat} disabled={sending||!!attachments.length} className="mt-4 flex w-full items-center gap-2 rounded-xl px-3 py-2.5 text-sm text-slate-500 hover:bg-slate-50 disabled:opacity-40"><Icon name="trash" className="h-4 w-4"/>{t.clear}</button></aside>
+      <div className="relative flex min-h-[calc(100vh-72px)] flex-col bg-white"><div className="flex-1 overflow-y-auto px-4 pb-48 pt-7 sm:px-8 lg:px-12"><div className="mx-auto max-w-3xl space-y-7">
+        <div className="flex gap-3"><span className="grid h-8 w-8 shrink-0 place-items-center rounded-lg bg-[#101b35] text-[10px] font-black text-white">AI</span><p className="max-w-[85%] pt-1 text-sm leading-7 text-slate-700">{welcome}</p></div>
+        {messages.map(item=><div key={item.id} className={`flex gap-3 ${item.role==="user"?"justify-end":"justify-start"}`}>{item.role==="assistant"&&<span className="grid h-8 w-8 shrink-0 place-items-center rounded-lg bg-[#101b35] text-[10px] font-black text-white">AI</span>}<div className={`max-w-[88%] ${item.role==="user"?"rounded-3xl bg-[#eef2f8] px-4 py-3":"pt-1"}`}>{item.attachments?.length?<div className="mb-2 grid gap-2 sm:grid-cols-2">{item.attachments.map(file=><button key={file.id} onClick={()=>void downloadAttachment(file)} className="flex min-w-0 items-center gap-2 rounded-xl border border-slate-200 bg-white p-2 text-start"><span className="grid h-9 w-9 shrink-0 place-items-center overflow-hidden rounded-lg bg-blue-50 text-blue-600">{file.kind==="image"&&file.previewUrl?<img src={file.previewUrl} alt="" className="h-full w-full object-cover"/>:<Icon name="file" className="h-4 w-4"/>}</span><span className="min-w-0 flex-1"><b className="block truncate text-xs">{file.name}</b><small className="text-slate-400">{formatBytes(file.size)}</small></span><Icon name="download" className="h-4 w-4 text-slate-400"/></button>)}</div>:null}{item.content&&<p className="whitespace-pre-wrap text-sm leading-7 text-slate-700">{item.content}</p>}</div></div>)}
+        {sending&&<div className="flex gap-3"><span className="grid h-8 w-8 place-items-center rounded-lg bg-[#101b35] text-[10px] font-black text-white">AI</span><span className="flex gap-1 pt-3">{[0,1,2].map(i=><i key={i} className="h-1.5 w-1.5 animate-bounce rounded-full bg-slate-400" style={{animationDelay:`${i*120}ms`}}/>)}</span></div>}<div ref={bottom}/>
+      </div></div>
+      <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-white via-white to-transparent px-3 pb-4 pt-12 sm:px-6"><form onSubmit={handleSend} className="mx-auto max-w-3xl">{error&&<div role="alert" className="mb-2 rounded-xl border border-rose-200 bg-rose-50 px-4 py-2 text-xs text-rose-700">{error}</div>}
+        <div onDragEnter={e=>{e.preventDefault();setDragging(true);}} onDragOver={e=>e.preventDefault()} onDragLeave={e=>{if(e.currentTarget===e.target)setDragging(false);}} onDrop={e=>{e.preventDefault();setDragging(false);void uploadFiles(Array.from(e.dataTransfer.files));}} className={`relative rounded-[26px] border bg-white p-2 shadow-[0_12px_45px_rgba(15,23,42,.14)] ${dragging?"border-blue-500 ring-4 ring-blue-100":"border-slate-200"}`}>{dragging&&<div className="absolute inset-0 z-20 grid place-items-center rounded-[26px] bg-blue-50/95 text-sm font-bold text-blue-700">{t.drop}</div>}
+          {!!attachments.length&&<div className="flex gap-2 overflow-x-auto px-2 pb-2 pt-1">{attachments.map(file=><div key={file.id} className="flex w-48 shrink-0 items-center gap-2 rounded-xl border border-slate-200 bg-slate-50 p-2"><span className="grid h-10 w-10 shrink-0 place-items-center overflow-hidden rounded-lg bg-white text-blue-600">{file.kind==="image"&&file.previewUrl?<img src={file.previewUrl} alt="" className="h-full w-full object-cover"/>:<Icon name="file" className="h-4 w-4"/>}</span><span className="min-w-0 flex-1"><b className="block truncate text-xs">{file.name}</b><small className="block text-slate-400">{file.status==="uploading"?`${file.progress??0}%`:t.ready}</small>{file.status==="uploading"&&<span className="mt-1 block h-1 overflow-hidden rounded bg-slate-200"><span className="block h-full bg-blue-600" style={{width:`${file.progress??0}%`}}/></span>}</span><button type="button" aria-label={`Remove ${file.name}`} onClick={()=>void removeAttachment(file)} disabled={file.status==="uploading"} className="text-slate-400 hover:text-rose-600 disabled:opacity-30"><Icon name="close" className="h-4 w-4"/></button></div>)}</div>}
+          <textarea value={message} onChange={e=>{setMessage(e.target.value);e.target.style.height="auto";e.target.style.height=`${Math.min(e.target.scrollHeight,160)}px`;}} onKeyDown={keyDown} rows={1} maxLength={2000} disabled={sending||!agentOnline} placeholder={t.placeholder} className="block max-h-40 min-h-12 w-full resize-none bg-transparent px-3 py-3 text-sm leading-6 outline-none placeholder:text-slate-400 disabled:opacity-50"/>
+          <div className="flex items-center justify-between px-1 pb-1"><div className="relative"><button type="button" onClick={()=>setMenu(value=>!value)} aria-expanded={menu} aria-label="Add attachment" className="grid h-10 w-10 place-items-center rounded-full text-slate-600 hover:bg-slate-100"><Icon name="plus"/></button>{menu&&<div className={`absolute bottom-12 z-30 w-64 rounded-2xl border border-slate-200 bg-white p-2 shadow-2xl ${rtl?"right-0":"left-0"}`}><MenuButton icon="image" title={t.photos} detail="JPEG, PNG or WebP" onClick={()=>imageInput.current?.click()}/><MenuButton icon="file" title={t.files} detail="PDF, Office, TXT or CSV" onClick={()=>fileInput.current?.click()}/></div>}</div><div className="flex items-center gap-2"><span className="hidden text-[11px] text-slate-400 sm:block">{t.hint}</span><button type="submit" aria-label="Send message" disabled={sending||attachments.some(item=>item.status==="uploading")||(!message.trim()&&!attachments.length)} className="grid h-10 w-10 place-items-center rounded-full bg-[#2864dc] text-white shadow-md hover:bg-blue-700 disabled:bg-slate-200 disabled:text-slate-400 disabled:shadow-none"><Icon name="send" className="h-4 w-4"/></button></div></div>
+          <input ref={imageInput} type="file" multiple accept={IMAGE_ACCEPT} className="hidden" onChange={e=>{void uploadFiles(Array.from(e.target.files??[]));e.target.value="";}}/><input ref={fileInput} type="file" multiple accept={FILE_ACCEPT} className="hidden" onChange={e=>{void uploadFiles(Array.from(e.target.files??[]));e.target.value="";}}/>
+        </div><p className="mt-2 text-center text-[10px] text-slate-400">{t.privacy}</p></form></div>
+      </div></div>
+  </section></main>;
+}
+
+function MenuButton({icon,title,detail,onClick}:{icon:string;title:string;detail:string;onClick:()=>void}){return <button type="button" onClick={onClick} className="flex w-full items-center gap-3 rounded-xl px-3 py-3 text-start text-sm hover:bg-slate-50"><span className="grid h-9 w-9 place-items-center rounded-lg bg-blue-50 text-blue-600"><Icon name={icon} className="h-4 w-4"/></span><span><b className="block">{title}</b><small className="text-slate-400">{detail}</small></span></button>;}

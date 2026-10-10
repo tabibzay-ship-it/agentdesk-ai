@@ -23,7 +23,7 @@ export const supabase = createClient(
 if (typeof window !== "undefined") {
   let currentAccount: string | undefined;
   supabase.auth.onAuthStateChange((event, session) => {
-    const protectedPage = /^\/(dashboard|business|agent|knowledge|conversations|settings|widget|install|chat)(\/|$)/.test(window.location.pathname);
+    const protectedPage = /^\/(dashboard|business|agent|knowledge|conversations|settings|billing|widget|install|chat)(\/|$)/.test(window.location.pathname);
     if (event === "SIGNED_OUT" && protectedPage) {
       window.location.replace("/login");
     }
