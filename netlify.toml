@@ -1,5 +1,12 @@
 # Public widget assets are served directly by Netlify, outside Next.js handlers.
 # Keep customer script embedding available; do not add CORP same-origin or COEP.
+[build]
+  command = "npm run build:netlify"
+
+[build.environment]
+  NODE_VERSION = "22.13.0"
+  NPM_FLAGS = "--no-audit --no-fund"
+
 [[headers]]
   for = "/widget.js"
   [headers.values]

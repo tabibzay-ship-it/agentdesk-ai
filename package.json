@@ -10,7 +10,13 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
-    "test": "node --test --test-concurrency=1 tests/*.test.cjs && tsx --test --test-concurrency=1 tests/*.test.ts"
+    "typecheck": "next typegen && tsc --noEmit",
+    "test": "node --test --test-concurrency=1 tests/*.test.cjs && tsx --test --test-concurrency=1 tests/*.test.ts",
+    "security:scan": "node scripts/deployment-security-scan.mjs",
+    "env:check": "node scripts/check-deployment-env.mjs",
+    "verify:deploy": "npm run lint && npm run typecheck && npm test && npm run security:scan && npm run env:check",
+    "build:netlify": "npm run verify:deploy && next build",
+    "verify:production": "node scripts/production-smoke.mjs"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.117.2",
