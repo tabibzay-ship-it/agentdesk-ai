@@ -109,9 +109,15 @@ function isLoopbackHostname(hostname: string) {
 
 export function getTrustedApplicationOrigin(request: Request): ParsedOrigin | null {
   const configured = process.env.AGENTDESK_APP_ORIGIN?.trim();
+  const netlifyPreviewOrigin =
+    process.env.CONTEXT === "deploy-preview"
+      ? process.env.DEPLOY_PRIME_URL?.trim()
+      : undefined;
   const productionHostname = process.env.VERCEL_PROJECT_PRODUCTION_URL?.trim();
-  if (configured || productionHostname) {
-    const parsed = parseRequestOrigin(configured || `https://${productionHostname}`);
+  if (configured || netlifyPreviewOrigin || productionHostname) {
+    const parsed = parseRequestOrigin(
+      configured || netlifyPreviewOrigin || `https://${productionHostname}`
+    );
     return parsed?.origin.startsWith("https://") ? parsed : null;
   }
   if (process.env.NODE_ENV === "production") return null;

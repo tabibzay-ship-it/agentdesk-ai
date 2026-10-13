@@ -351,6 +351,21 @@ test("preserves the browser loopback Host when NextRequest normalizes its URL", 
   assert.equal(result.body.verified, true);
 });
 
+test("uses Netlify's exact Deploy Preview origin without changing production configuration", async () => {
+  const previewOrigin = "https://deploy-preview-1--agentdesk.example";
+  const f = fixture({
+    env: {
+      AGENTDESK_APP_ORIGIN: "",
+      CONTEXT: "deploy-preview",
+      DEPLOY_PRIME_URL: previewOrigin,
+    },
+    html: `<script src="${previewOrigin}/widget.js" data-agent-id="${publicAgentId}"></script>`,
+  });
+  const result = await f.request();
+  assert.equal(result.status, 200);
+  assert.equal(result.body.verified, true);
+});
+
 test("does not trust an external incoming Host to redefine the production widget", async () => {
   const f = fixture({
     requestOrigin: "https://localhost",

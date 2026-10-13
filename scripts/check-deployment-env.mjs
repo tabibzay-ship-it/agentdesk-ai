@@ -8,10 +8,16 @@ const required = [
   "NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY",
   "SUPABASE_SERVICE_ROLE_KEY",
   "OPENAI_API_KEY",
-  "AGENTDESK_APP_ORIGIN",
 ];
 
+const applicationOrigin =
+  process.env.AGENTDESK_APP_ORIGIN?.trim() ||
+  (process.env.CONTEXT === "deploy-preview"
+    ? process.env.DEPLOY_PRIME_URL?.trim()
+    : "");
+
 const missing = required.filter((name) => !process.env[name]?.trim());
+if (!applicationOrigin) missing.push("AGENTDESK_APP_ORIGIN");
 if (missing.length) {
   console.error(`Missing required deployment variables: ${missing.join(", ")}`);
   process.exit(1);
@@ -25,7 +31,7 @@ if (/service_role|sb_secret_/i.test(publicKey)) {
 
 for (const [name, value] of [
   ["NEXT_PUBLIC_SUPABASE_URL", process.env.NEXT_PUBLIC_SUPABASE_URL],
-  ["AGENTDESK_APP_ORIGIN", process.env.AGENTDESK_APP_ORIGIN],
+  ["AGENTDESK_APP_ORIGIN", applicationOrigin],
 ]) {
   let url;
   try { url = new URL(value); } catch { /* handled below */ }
@@ -35,9 +41,9 @@ for (const [name, value] of [
   }
 }
 
-if (process.env.CONTEXT === "production" && new URL(process.env.AGENTDESK_APP_ORIGIN).hostname !== "getagentdeskai.com") {
+if (process.env.CONTEXT === "production" && new URL(applicationOrigin).hostname !== "getagentdeskai.com") {
   console.error("Production AGENTDESK_APP_ORIGIN must remain https://getagentdeskai.com.");
   process.exit(1);
 }
 
-console.log(`Deployment environment is valid (${required.length} required variable names present; values hidden).`);
+console.log(`Deployment environment is valid (${required.length + 1} required variable names present; values hidden).`);
