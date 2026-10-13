@@ -7,7 +7,7 @@
   },
   "scripts": {
     "dev": "next dev",
-    "build": "next build",
+    "build": "next build --webpack",
     "start": "next start",
     "lint": "eslint",
     "typecheck": "next typegen && tsc --noEmit",
@@ -15,8 +15,11 @@
     "security:scan": "node scripts/deployment-security-scan.mjs",
     "env:check": "node scripts/check-deployment-env.mjs",
     "verify:deploy": "npm run lint && npm run typecheck && npm test && npm run security:scan && npm run env:check",
-    "build:netlify": "npm run verify:deploy && next build",
-    "verify:production": "node scripts/production-smoke.mjs"
+    "build:netlify": "npm run verify:deploy && npm run build",
+    "verify:production": "node scripts/production-smoke.mjs",
+    "test:auth-e2e": "playwright test tests/e2e/auth-responsive.spec.ts",
+    "test:auth-e2e:local-ui": "playwright test --config=playwright.auth-ui-local.config.ts",
+    "test:auth-e2e:local-live": "playwright test --config=playwright.auth-live.config.ts"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.117.2",
@@ -30,6 +33,8 @@
     "server-only": "^0.0.1"
   },
   "devDependencies": {
+    "@electric-sql/pglite": "^0.3.14",
+    "@playwright/test": "^1.64.0",
     "@tailwindcss/postcss": "^4",
     "@types/node": "^20",
     "@types/react": "^19",
@@ -39,5 +44,24 @@
     "tailwindcss": "^4",
     "tsx": "^4.23.15",
     "typescript": "^5"
-  }
+  },
+  "description": "AgentDesk AI is a Next.js customer-support platform. A business can train an AI agent, test it in the dashboard, install a chat widget on approved websites, and review saved conversations.",
+  "main": "index.js",
+  "directories": {
+    "doc": "docs",
+    "lib": "lib",
+    "test": "tests"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/tabibzay-ship-it/agentdesk-ai.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "bugs": {
+    "url": "https://github.com/tabibzay-ship-it/agentdesk-ai/issues"
+  },
+  "homepage": "https://github.com/tabibzay-ship-it/agentdesk-ai#readme"
 }

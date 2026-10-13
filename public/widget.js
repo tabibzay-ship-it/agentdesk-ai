@@ -92,6 +92,10 @@
 
     isActive:
       true,
+    position: "right",
+    size: "standard",
+    theme: "system",
+    locale: "en",
   };
 
   // =========================================
@@ -132,6 +136,10 @@
 
         isActive:
           data.isActive !== false,
+        position: ["left", "right"].includes(data.position) ? data.position : defaultSettings.position,
+        size: ["compact", "standard", "large"].includes(data.size) ? data.size : defaultSettings.size,
+        theme: ["light", "dark", "system"].includes(data.theme) ? data.theme : defaultSettings.theme,
+        locale: ["en", "ps", "fa"].includes(data.locale) ? data.locale : defaultSettings.locale,
       };
     } catch (error) {
       console.error(
@@ -174,7 +182,7 @@
 
       #agentdesk-ai-root {
         position: fixed;
-        right: 24px;
+        ${settings.position === "left" ? "left" : "right"}: 24px;
         bottom: 24px;
         z-index: 2147483647;
 
@@ -226,8 +234,8 @@
         right: 0;
         bottom: 76px;
 
-        width: 370px;
-        height: 520px;
+        width: ${settings.size === "compact" ? "330px" : settings.size === "large" ? "420px" : "370px"};
+        height: ${settings.size === "compact" ? "440px" : settings.size === "large" ? "620px" : "520px"};
 
         max-width:
           calc(100vw - 32px);

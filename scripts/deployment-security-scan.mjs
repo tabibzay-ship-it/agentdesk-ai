@@ -1,7 +1,7 @@
 import { execFileSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 
-const files = execFileSync("git", ["ls-files"], { encoding: "utf8" })
+const files = execFileSync("git", ["ls-files", "--cached", "--others", "--exclude-standard"], { encoding: "utf8" })
   .split(/\r?\n/)
   .filter(Boolean)
   .filter((file) => !/(^|\/)(package-lock\.json|test-results|theme-backup-)/.test(file));
@@ -27,4 +27,4 @@ if (findings.length) {
   console.error(["Potential committed secrets detected:", ...findings].join("\n"));
   process.exit(1);
 }
-console.log(`Secret scan passed for ${files.length} tracked files.`);
+console.log(`Secret scan passed for ${files.length} tracked and untracked candidate files.`);

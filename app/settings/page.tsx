@@ -1,8 +1,11 @@
+
 "use client";
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase";
+import ThemeSwitcher from "@/components/theme-switcher";
+import MarketingPreferences from "@/components/marketing-preferences";
 
 export default function SettingsPage() {
   const router = useRouter();
@@ -15,46 +18,79 @@ export default function SettingsPage() {
   const [signOutError, setSignOutError] = useState("");
 
   useEffect(() => {
+    let active = true;
+
     async function loadAccount() {
-      const {
-        data: { user },
-      } = await supabase.auth.getUser();
+      try {
+        const {
+          data: { user },
+          error,
+        } = await supabase.auth.getUser();
 
-      if (!user) {
-        router.replace("/login");
-        return;
+        if (!active) return;
+
+        if (error || !user) {
+          router.replace("/login");
+          return;
+        }
+
+        setEmail(user.email || "");
+        setUserId(user.id);
+      } catch {
+        if (active) router.replace("/login");
+      } finally {
+        if (active) setLoading(false);
       }
-
-      setEmail(user.email || "");
-      setUserId(user.id);
-      setLoading(false);
     }
 
     void loadAccount();
+
+    return () => {
+      active = false;
+    };
   }, [router]);
 
   async function signOut() {
     if (signingOut) return;
+
     setSignOutError("");
     setSigningOut(true);
+
     try {
-      const { error } = await supabase.auth.signOut({ scope: "global" });
+      const { error } = await supabase.auth.signOut({
+        scope: "global",
+      });
+
       if (error) {
-        setSignOutError("Could not sign out. Please try again.");
+        setSignOutError(
+          "Could not sign out. Please try again."
+        );
         return;
       }
+
       router.replace("/login");
     } catch {
-      setSignOutError("Could not sign out. Please try again.");
+      setSignOutError(
+        "Could not sign out. Please try again."
+      );
     } finally {
       setSigningOut(false);
     }
   }
 
+  const cardClass =
+    "rounded-2xl border border-[var(--premium-border)] bg-[var(--premium-surface)] p-6 shadow-sm";
+
+  const secondaryButton =
+    "rounded-xl border border-[var(--premium-border)] bg-[var(--premium-surface-muted)] px-5 py-2.5 font-semibold text-[var(--premium-text)] transition-colors hover:opacity-80";
+
+  const mutedClass =
+    "text-sm text-[var(--premium-text-muted)]";
+
   if (loading) {
     return (
-      <main className="min-h-screen bg-slate-950 flex items-center justify-center text-white">
-        <p className="text-slate-400">
+      <main className="flex min-h-screen items-center justify-center bg-[var(--background)] text-[var(--foreground)]">
+        <p role="status" className={mutedClass}>
           Loading settings...
         </p>
       </main>
@@ -62,13 +98,13 @@ export default function SettingsPage() {
   }
 
   return (
-    <main className="min-h-screen bg-slate-950 text-white">
-      <div className="max-w-5xl mx-auto px-6 py-10">
+    <main className="min-h-screen bg-[var(--background)] text-[var(--foreground)]">
+      <div className="mx-auto max-w-5xl px-4 py-10 sm:px-6">
 
         {/* Header */}
-        <div className="flex flex-col gap-5 sm:flex-row sm:items-center sm:justify-between mb-10">
+        <header className="mb-10 flex flex-col gap-5 sm:flex-row sm:items-center sm:justify-between">
           <div>
-            <p className="text-blue-400 font-semibold mb-2">
+            <p className="mb-2 font-semibold text-[var(--premium-primary)]">
               AgentDesk AI
             </p>
 
@@ -76,48 +112,49 @@ export default function SettingsPage() {
               Settings
             </h1>
 
-            <p className="text-slate-400 mt-2">
+            <p className={`mt-2 ${mutedClass}`}>
               Manage your AgentDesk AI account and workspace.
             </p>
           </div>
 
           <button
+            type="button"
             onClick={() => router.push("/dashboard")}
-            className="px-5 py-2.5 rounded-xl border border-slate-700 bg-slate-900 hover:bg-slate-800 transition"
+            className={secondaryButton}
           >
             Back to Dashboard
           </button>
-        </div>
+        </header>
 
         <div className="space-y-6">
 
           {/* Account */}
-          <section className="rounded-2xl border border-slate-800 bg-slate-900 p-6">
+          <section className={cardClass}>
             <h2 className="text-xl font-semibold">
               Account
             </h2>
 
-            <p className="text-sm text-slate-400 mt-1 mb-6">
+            <p className={`mb-6 mt-1 ${mutedClass}`}>
               Your AgentDesk AI account information.
             </p>
 
             <div className="space-y-5">
               <div>
-                <label className="block text-sm text-slate-400 mb-2">
+                <p className={`mb-2 ${mutedClass}`}>
                   Email Address
-                </label>
+                </p>
 
-                <div className="rounded-xl border border-slate-700 bg-slate-950 px-4 py-3">
+                <div className="break-all rounded-xl border border-[var(--premium-border)] bg-[var(--premium-surface-muted)] px-4 py-3">
                   {email}
                 </div>
               </div>
 
               <div>
-                <label className="block text-sm text-slate-400 mb-2">
+                <p className={`mb-2 ${mutedClass}`}>
                   Account ID
-                </label>
+                </p>
 
-                <div className="rounded-xl border border-slate-700 bg-slate-950 px-4 py-3 text-sm text-slate-300 break-all">
+                <div className="break-all rounded-xl border border-[var(--premium-border)] bg-[var(--premium-surface-muted)] px-4 py-3 text-sm">
                   {userId}
                 </div>
               </div>
@@ -125,105 +162,141 @@ export default function SettingsPage() {
           </section>
 
           {/* Business */}
-          <section className="rounded-2xl border border-slate-800 bg-slate-900 p-6">
+          <section className={cardClass}>
             <h2 className="text-xl font-semibold">
               Business Information
             </h2>
 
-            <p className="text-sm text-slate-400 mt-1 mb-5">
+            <p className={`mb-5 mt-1 ${mutedClass}`}>
               Manage the information your AI uses about your business.
             </p>
 
             <button
+              type="button"
               onClick={() => router.push("/business")}
-              className="px-5 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-500 font-semibold transition"
+              className="rounded-xl bg-blue-600 px-5 py-2.5 font-semibold text-white transition-colors hover:bg-blue-700"
             >
               Manage Business Information
             </button>
           </section>
 
           {/* AI Agent */}
-          <section className="rounded-2xl border border-slate-800 bg-slate-900 p-6">
+          <section className={cardClass}>
             <h2 className="text-xl font-semibold">
               AI Agent
             </h2>
 
-            <p className="text-sm text-slate-400 mt-1 mb-5">
+            <p className={`mb-5 mt-1 ${mutedClass}`}>
               Configure your AI Agent status, tone and custom instructions.
             </p>
 
             <button
+              type="button"
               onClick={() => router.push("/agent")}
-              className="px-5 py-2.5 rounded-xl border border-slate-700 bg-slate-950 hover:bg-slate-800 font-semibold transition"
+              className={secondaryButton}
             >
               Manage AI Agent
             </button>
           </section>
 
-          {/* Widget */}
-          <section className="rounded-2xl border border-slate-800 bg-slate-900 p-6">
+          {/* Website Widget */}
+          <section className={cardClass}>
             <h2 className="text-xl font-semibold">
               Website Widget
             </h2>
 
-            <p className="text-sm text-slate-400 mt-1 mb-5">
+            <p className={`mb-5 mt-1 ${mutedClass}`}>
               Customize your support widget or get the installation code.
             </p>
 
             <div className="flex flex-wrap gap-3">
               <button
+                type="button"
                 onClick={() => router.push("/widget")}
-                className="px-5 py-2.5 rounded-xl border border-slate-700 bg-slate-950 hover:bg-slate-800 font-semibold transition"
+                className={secondaryButton}
               >
                 Customize Widget
               </button>
 
               <button
+                type="button"
                 onClick={() => router.push("/install")}
-                className="px-5 py-2.5 rounded-xl border border-slate-700 bg-slate-950 hover:bg-slate-800 font-semibold transition"
+                className={secondaryButton}
               >
                 Installation Code
               </button>
             </div>
           </section>
 
-          {/* Knowledge */}
-          <section className="rounded-2xl border border-slate-800 bg-slate-900 p-6">
+          {/* Knowledge Base */}
+          <section className={cardClass}>
             <h2 className="text-xl font-semibold">
               Knowledge Base
             </h2>
 
-            <p className="text-sm text-slate-400 mt-1 mb-5">
+            <p className={`mb-5 mt-1 ${mutedClass}`}>
               Add and manage information used by your AI Agent.
             </p>
 
             <button
+              type="button"
               onClick={() => router.push("/knowledge")}
-              className="px-5 py-2.5 rounded-xl border border-slate-700 bg-slate-950 hover:bg-slate-800 font-semibold transition"
+              className={secondaryButton}
             >
               Manage Knowledge
             </button>
           </section>
 
+          {/* Appearance */}
+          <section className={cardClass}>
+            <h2 className="text-xl font-semibold">Email preferences</h2>
+            <p className={`mb-5 mt-1 ${mutedClass}`}>Control optional product email separately from essential account and security messages.</p>
+            <MarketingPreferences />
+          </section>
+
+          {/* Appearance */}
+          <section className={cardClass}>
+            <h2 className="text-xl font-semibold">
+              Appearance
+            </h2>
+
+            <p className={`mb-5 mt-1 ${mutedClass}`}>
+              Choose how AgentDesk AI looks on your device.
+            </p>
+
+            <ThemeSwitcher />
+
+            <p className="mt-4 text-xs text-[var(--premium-text-muted)]">
+              Select Light, Dark, or System. Your current choice is highlighted and saved on this device.
+            </p>
+          </section>
+
           {/* Sign Out */}
-          <section className="rounded-2xl border border-red-900/50 bg-red-950/20 p-6">
+          <section className="rounded-2xl border border-red-500/30 bg-red-500/5 p-6">
             <h2 className="text-xl font-semibold">
               Sign Out
             </h2>
 
-            <p className="text-sm text-slate-400 mt-1 mb-5">
+            <p className={`mb-5 mt-1 ${mutedClass}`}>
               Sign out of your AgentDesk AI account across devices.
             </p>
 
             <button
+              type="button"
               onClick={signOut}
               disabled={signingOut}
-              className="px-5 py-2.5 rounded-xl bg-red-600 hover:bg-red-500 font-semibold transition"
+              className="rounded-xl bg-red-600 px-5 py-2.5 font-semibold text-white transition-colors hover:bg-red-700 disabled:cursor-not-allowed disabled:opacity-60"
             >
-              {signingOut ? "Signing Out..." : "Sign Out"}
+              {signingOut
+                ? "Signing Out..."
+                : "Sign Out"}
             </button>
+
             {signOutError && (
-              <p role="alert" className="mt-3 text-sm text-red-400">
+              <p
+                role="alert"
+                className="mt-3 text-sm text-red-500"
+              >
                 {signOutError}
               </p>
             )}

@@ -3,15 +3,21 @@
 import { FormEvent, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { supabase } from "../../lib/supabase";
+import { AuthPreferences, useAuthLocale } from "@/components/auth-preferences";
 
 export default function WidgetPage() {
   const router = useRouter();
+  const { locale, setLocale, rtl } = useAuthLocale();
 
   const [agentName, setAgentName] = useState("AI Support Assistant");
   const [welcomeMessage, setWelcomeMessage] = useState(
     "Hi! 👋 How can I help you today?"
   );
   const [primaryColor, setPrimaryColor] = useState("#2563eb");
+  const [position, setPosition] = useState("right");
+  const [size, setSize] = useState("standard");
+  const [widgetTheme, setWidgetTheme] = useState("system");
+  const [publicAgentId, setPublicAgentId] = useState("");
 
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -52,7 +58,13 @@ export default function WidgetPage() {
         );
 
         setPrimaryColor(typeof data.primary_color === "string" && /^#[0-9a-f]{6}$/i.test(data.primary_color) ? data.primary_color : "#2563eb");
+        setPosition(["left","right"].includes(data.position) ? data.position : "right");
+        setSize(["compact","standard","large"].includes(data.size) ? data.size : "standard");
+        setWidgetTheme(["light","dark","system"].includes(data.theme) ? data.theme : "system");
       }
+
+      const { data: agent } = await supabase.from("agent_settings").select("public_agent_id").eq("user_id", user.id).maybeSingle();
+      setPublicAgentId(agent?.public_agent_id ?? "");
 
       setLoading(false);
     }
@@ -92,6 +104,10 @@ export default function WidgetPage() {
       agent_name: agentName.trim(),
       welcome_message: welcomeMessage.trim(),
       primary_color: primaryColor,
+      position,
+      size,
+      theme: widgetTheme,
+      locale,
     };
 
     const { data: existing, error: checkError } =
@@ -145,7 +161,7 @@ export default function WidgetPage() {
   }
 
   return (
-    <main className="min-h-screen bg-slate-950 text-white">
+    <main dir={rtl ? "rtl" : "ltr"} className="min-h-screen bg-[var(--premium-bg)] text-[var(--premium-text)]">
       <div className="mx-auto max-w-7xl px-6 py-10">
 
         <button
@@ -156,7 +172,8 @@ export default function WidgetPage() {
           ← Back to Dashboard
         </button>
 
-        <div className="mb-8">
+        <div className="mb-8 flex flex-wrap items-start justify-between gap-4">
+          <div>
           <h1 className="text-3xl font-bold">
             Customize Chat Widget
           </h1>
@@ -165,12 +182,14 @@ export default function WidgetPage() {
             Customize how your AI support assistant
             looks to your customers.
           </p>
+          </div>
+          <AuthPreferences locale={locale} onLocaleChange={setLocale} />
         </div>
 
         <div className="grid gap-8 lg:grid-cols-2">
 
           {/* Settings */}
-          <div className="rounded-2xl border border-slate-800 bg-slate-900 p-6 md:p-8">
+          <div className="rounded-2xl border border-[var(--premium-border)] bg-[var(--premium-surface)] p-6 md:p-8">
 
             <h2 className="text-xl font-semibold">
               Widget Settings
@@ -265,6 +284,14 @@ export default function WidgetPage() {
                 </div>
               </div>
 
+              <div className="grid gap-4 sm:grid-cols-3">
+                <label className="text-sm font-medium">Position<select value={position} onChange={e=>setPosition(e.target.value)} className="mt-2 min-h-11 w-full rounded-xl border border-[var(--premium-border)] bg-[var(--premium-surface)] px-3"><option value="right">Right</option><option value="left">Left</option></select></label>
+                <label className="text-sm font-medium">Size<select value={size} onChange={e=>setSize(e.target.value)} className="mt-2 min-h-11 w-full rounded-xl border border-[var(--premium-border)] bg-[var(--premium-surface)] px-3"><option value="compact">Compact</option><option value="standard">Standard</option><option value="large">Large</option></select></label>
+                <label className="text-sm font-medium">Widget theme<select value={widgetTheme} onChange={e=>setWidgetTheme(e.target.value)} className="mt-2 min-h-11 w-full rounded-xl border border-[var(--premium-border)] bg-[var(--premium-surface)] px-3"><option value="system">System</option><option value="light">Light</option><option value="dark">Dark</option></select></label>
+              </div>
+
+              {publicAgentId && <div className="rounded-xl border border-[var(--premium-border)] p-4"><p className="text-sm font-semibold">Installation script</p><code className="mt-2 block overflow-x-auto whitespace-nowrap rounded-lg bg-slate-950 p-3 text-xs text-slate-100">{`<script src="${typeof window!=="undefined"?window.location.origin:""}/widget.js" data-agent-id="${publicAgentId}" async></script>`}</code><button type="button" onClick={()=>void navigator.clipboard.writeText(`<script src="${window.location.origin}/widget.js" data-agent-id="${publicAgentId}" async></script>`)} className="mt-3 min-h-11 rounded-xl border px-4 text-sm font-bold">Copy script</button><button type="button" onClick={()=>router.push("/agent")} className="ms-2 min-h-11 rounded-xl border px-4 text-sm font-bold">Domain allowlist</button></div>}
+
               <button
                 type="submit"
                 disabled={saving}
@@ -279,7 +306,7 @@ export default function WidgetPage() {
           </div>
 
           {/* Live Preview */}
-          <div className="rounded-2xl border border-slate-800 bg-slate-900 p-6 md:p-8">
+          <div className="rounded-2xl border border-[var(--premium-border)] bg-[var(--premium-surface)] p-6 md:p-8">
 
             <div className="mb-6">
               <h2 className="text-xl font-semibold">

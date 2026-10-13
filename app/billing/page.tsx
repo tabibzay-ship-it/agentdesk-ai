@@ -22,6 +22,48 @@ export default function BillingPage() {
   const [data, setData] = useState<BillingData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const [notice, setNotice] = useState("");
+  const [pendingAction, setPendingAction] = useState<string | null>(null);
+
+  async function authorizedPost(path: string, body?: Record<string, unknown>) {
+    const { data: { session } } = await supabase.auth.getSession();
+    if (!session) { router.replace("/login"); throw new Error("Your session has expired."); }
+    const response = await fetch(path, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${session.access_token}`, ...(body ? { "Content-Type": "application/json" } : {}) },
+      body: body ? JSON.stringify(body) : undefined,
+    });
+    const result = await response.json();
+    if (!response.ok) throw new Error(result.error || "The billing request could not be completed.");
+    return result;
+  }
+
+  async function startCheckout(planCode: string) {
+    if (pendingAction) return;
+    setError(""); setNotice(""); setPendingAction(planCode);
+    try {
+      const result = await authorizedPost("/api/billing/checkout", { planCode });
+      const checkoutUrl = new URL(String(result.checkoutUrl));
+      if (checkoutUrl.protocol !== "https:") throw new Error("The payment provider returned an unsafe checkout URL.");
+      window.location.assign(checkoutUrl.href);
+    } catch (actionError) {
+      setError(actionError instanceof Error ? actionError.message : "Checkout could not be started.");
+      setPendingAction(null);
+    }
+  }
+
+  async function cancelSubscription() {
+    if (pendingAction || !window.confirm("Request cancellation of this subscription at the provider?")) return;
+    setError(""); setNotice(""); setPendingAction("cancel");
+    try {
+      const result = await authorizedPost("/api/billing/cancel");
+      setNotice(result.message || "Cancellation requested. Status will update after provider confirmation.");
+    } catch (actionError) {
+      setError(actionError instanceof Error ? actionError.message : "Cancellation could not be requested.");
+    } finally {
+      setPendingAction(null);
+    }
+  }
 
   useEffect(() => {
     let active = true;
@@ -56,8 +98,8 @@ export default function BillingPage() {
   const usagePercent = limit > 0 ? Math.min(100, Math.round((used / limit) * 100)) : 0;
 
   return (
-    <main className="min-h-screen bg-slate-950 text-white">
-      <header className="border-b border-slate-800 bg-slate-950/95 px-5 py-5 sm:px-8">
+    <main className="min-h-screen bg-[var(--background)] text-[var(--foreground)]">
+      <header className="border-b border-[var(--premium-border)] bg-[var(--premium-surface)] px-5 py-5 sm:px-8">
         <div className="mx-auto flex max-w-6xl items-center justify-between gap-4">
           <button type="button" onClick={() => router.push("/dashboard")} className="text-xl font-bold">AgentDesk <span className="text-blue-500">AI</span></button>
           <button type="button" onClick={() => router.push("/dashboard")} className="rounded-lg border border-slate-700 px-4 py-2 text-sm text-slate-300 hover:bg-slate-800">Back to dashboard</button>
@@ -72,6 +114,7 @@ export default function BillingPage() {
         </div>
 
         {error && <div role="alert" className="mt-8 rounded-xl border border-amber-500/40 bg-amber-500/10 p-4 text-amber-200">{error}</div>}
+        {notice && <div role="status" className="mt-8 rounded-xl border border-emerald-500/40 bg-emerald-500/10 p-4 text-emerald-700 dark:text-emerald-200">{notice}</div>}
 
         {data && <>
           <section className="mt-8 grid gap-5 lg:grid-cols-3">
@@ -100,13 +143,17 @@ export default function BillingPage() {
                 <p className="mt-4 text-3xl font-bold">{money.format(plan.priceCents / 100)}<span className="text-sm font-normal text-slate-400"> / month</span></p>
                 <p className="mt-3 min-h-10 text-sm text-slate-400">{plan.description}</p>
                 <ul className="mt-5 space-y-2 text-sm text-slate-300"><li>✓ {plan.agentLimit} AI {plan.agentLimit === 1 ? "Agent" : "Agents"}</li><li>✓ {plan.monthlyResponseLimit.toLocaleString()} AI responses / month</li></ul>
-                <button type="button" disabled={selected || plan.priceCents > 0 || !data.checkout.available} className="mt-6 w-full rounded-xl bg-blue-600 px-4 py-3 font-semibold disabled:cursor-not-allowed disabled:bg-slate-800 disabled:text-slate-500">{selected ? "Current plan" : plan.priceCents === 0 ? "Free plan" : "Checkout unavailable"}</button>
+                <button type="button" onClick={() => void startCheckout(plan.code)}
+                  disabled={selected || plan.priceCents === 0 || !data.checkout.available || pendingAction !== null}
+                  className="mt-6 min-h-12 w-full rounded-xl bg-blue-600 px-4 py-3 font-semibold text-white disabled:cursor-not-allowed disabled:bg-slate-800 disabled:text-slate-500">
+                  {pendingAction === plan.code ? "Opening secure checkout…" : selected ? "Current plan" : plan.priceCents === 0 ? "Free plan" : data.checkout.available ? `Choose ${plan.name}` : "Checkout unavailable"}
+                </button>
               </article>;
             })}
           </section>
 
           <section className="mt-10 rounded-2xl border border-slate-800 bg-slate-900 p-6">
-            <div className="flex flex-wrap items-center justify-between gap-4"><div><h2 className="text-xl font-semibold">Billing history</h2><p className="mt-1 text-sm text-slate-400">Verified payment activity for this account only.</p></div><button type="button" disabled={!data.checkout.available || currentPlan === "free"} className="rounded-lg border border-red-500/40 px-4 py-2 text-sm text-red-300 disabled:cursor-not-allowed disabled:border-slate-700 disabled:text-slate-600">Cancel subscription</button></div>
+            <div className="flex flex-wrap items-center justify-between gap-4"><div><h2 className="text-xl font-semibold">Billing history</h2><p className="mt-1 text-sm text-slate-400">Verified payment activity for this account only.</p></div><button type="button" onClick={() => void cancelSubscription()} disabled={!data.checkout.available || currentPlan === "free" || pendingAction !== null} className="min-h-11 rounded-lg border border-red-500/40 px-4 py-2 text-sm text-red-400 disabled:cursor-not-allowed disabled:border-slate-700 disabled:text-slate-600">{pendingAction === "cancel" ? "Requesting…" : "Cancel subscription"}</button></div>
             {data.transactions.length === 0 && data.billingEvents.length === 0 ? <p className="mt-6 rounded-xl bg-slate-950 p-5 text-sm text-slate-500">No billing activity yet.</p> : <div className="mt-6 space-y-3">{data.transactions.map((item) => <div key={item.id} className="flex justify-between rounded-xl bg-slate-950 p-4 text-sm"><span className="capitalize">{item.status}</span><span>{money.format(item.amount_cents / 100)} · {new Date(item.occurred_at || item.created_at).toLocaleDateString()}</span></div>)}</div>}
           </section>
         </>}

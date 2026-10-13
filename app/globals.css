@@ -1,8 +1,33 @@
+
 @import "tailwindcss";
 
+/* =========================================
+   AGENTDESK AI — PREMIUM THEME SYSTEM
+   Light / Dark / System
+   ========================================= */
+
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  --background: #f8fafc;
+  --foreground: #0f172a;
+
+  --premium-primary: #2563eb;
+  --premium-primary-hover: #1d4ed8;
+  --premium-surface: #ffffff;
+  --premium-surface-muted: #f1f5f9;
+  --premium-border: #e2e8f0;
+  --premium-text: #0f172a;
+  --premium-text-muted: #64748b;
+  --premium-bg: #f8fafc;
+  --premium-muted: #64748b;
+
+  --dashboard-bg: #f5f7fb;
+  --dashboard-card: #ffffff;
+  --dashboard-muted: #f8fafc;
+  --dashboard-border: #e2e8f0;
+  --dashboard-text: #172033;
+  --dashboard-secondary: #64748b;
+
+  color-scheme: light;
 }
 
 @theme inline {
@@ -12,15 +37,720 @@
   --font-mono: var(--font-geist-mono);
 }
 
+/* Light Mode */
+
+html[data-theme="light"] {
+  --background: #f8fafc;
+  --foreground: #0f172a;
+
+  --premium-primary: #2563eb;
+  --premium-primary-hover: #1d4ed8;
+  --premium-surface: #ffffff;
+  --premium-surface-muted: #f1f5f9;
+  --premium-border: #e2e8f0;
+  --premium-text: #0f172a;
+  --premium-text-muted: #64748b;
+
+  --dashboard-bg: #f5f7fb;
+  --dashboard-card: #ffffff;
+  --dashboard-muted: #f8fafc;
+  --dashboard-border: #e2e8f0;
+  --dashboard-text: #172033;
+  --dashboard-secondary: #64748b;
+
+  color-scheme: light;
+}
+
+/* Dark Mode */
+
+html[data-theme="dark"] {
+  --background: #090e1a;
+  --foreground: #f8fafc;
+
+  --premium-primary: #60a5fa;
+  --premium-primary-hover: #93c5fd;
+  --premium-surface: #111827;
+  --premium-surface-muted: #1e293b;
+  --premium-border: #334155;
+  --premium-text: #f8fafc;
+  --premium-text-muted: #94a3b8;
+  --premium-bg: #090e1a;
+  --premium-muted: #94a3b8;
+
+  --dashboard-bg: #090e1a;
+  --dashboard-card: #111827;
+  --dashboard-muted: #1e293b;
+  --dashboard-border: #334155;
+  --dashboard-text: #f8fafc;
+  --dashboard-secondary: #94a3b8;
+
+  color-scheme: dark;
+}
+
+/* System Dark Mode */
+
 @media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
+  html:not([data-theme]) {
+    --background: #090e1a;
+    --foreground: #f8fafc;
+
+    --premium-primary: #60a5fa;
+    --premium-primary-hover: #93c5fd;
+    --premium-surface: #111827;
+    --premium-surface-muted: #1e293b;
+    --premium-border: #334155;
+    --premium-text: #f8fafc;
+    --premium-text-muted: #94a3b8;
+
+    --dashboard-bg: #090e1a;
+    --dashboard-card: #111827;
+    --dashboard-muted: #1e293b;
+    --dashboard-border: #334155;
+    --dashboard-text: #f8fafc;
+    --dashboard-secondary: #94a3b8;
+
+    color-scheme: dark;
   }
 }
 
+/* Global Layout */
+
+html {
+  min-height: 100%;
+}
+
 body {
+  min-height: 100vh;
+  margin: 0;
   background: var(--background);
   color: var(--foreground);
   font-family: Arial, Helvetica, sans-serif;
+}
+
+/* Premium Settings Cards */
+
+.premium-card {
+  background: var(--premium-surface);
+  color: var(--premium-text);
+  border: 1px solid var(--premium-border);
+  border-radius: 16px;
+  box-shadow: 0 4px 20px rgb(0 0 0 / 0.04);
+  transition:
+    background-color 0.2s ease,
+    border-color 0.2s ease,
+    box-shadow 0.2s ease;
+}
+
+.premium-card:hover {
+  box-shadow: 0 8px 28px rgb(0 0 0 / 0.08);
+}
+
+.premium-muted {
+  color: var(--premium-text-muted);
+}
+
+/* =========================================
+   DASHBOARD — DARK MODE OVERRIDES
+   No Dashboard TSX changes required
+   ========================================= */
+
+/* Main dashboard background */
+html[data-theme="dark"]
+main:has(> aside) {
+  background-color: var(--dashboard-bg) !important;
+  color: var(--dashboard-text) !important;
+}
+
+/* Dashboard header */
+html[data-theme="dark"]
+main:has(> aside) > section > header {
+  background-color: var(--dashboard-card) !important;
+  border-color: var(--dashboard-border) !important;
+  color: var(--dashboard-text) !important;
+}
+
+/* Main white cards */
+html[data-theme="dark"]
+main:has(> aside) .bg-white {
+  background-color: var(--dashboard-card) !important;
+}
+
+/* Muted card surfaces */
+html[data-theme="dark"]
+main:has(> aside) .bg-slate-50 {
+  background-color: var(--dashboard-muted) !important;
+}
+
+html[data-theme="dark"]
+main:has(> aside) .bg-slate-100 {
+  background-color: #253247 !important;
+}
+
+html[data-theme="dark"]
+main:has(> aside) .bg-slate-200 {
+  background-color: #334155 !important;
+}
+
+/* Borders */
+html[data-theme="dark"]
+main:has(> aside) .border-slate-200,
+html[data-theme="dark"]
+main:has(> aside) .border-slate-100 {
+  border-color: var(--dashboard-border) !important;
+}
+
+/* Primary content */
+html[data-theme="dark"]
+main:has(> aside) > section h1,
+html[data-theme="dark"]
+main:has(> aside) > section h2,
+html[data-theme="dark"]
+main:has(> aside) > section h3 {
+  color: var(--dashboard-text);
+}
+
+/* Muted text */
+html[data-theme="dark"]
+main:has(> aside) .text-slate-400,
+html[data-theme="dark"]
+main:has(> aside) .text-slate-500,
+html[data-theme="dark"]
+main:has(> aside) .text-slate-600 {
+  color: var(--dashboard-secondary) !important;
+}
+
+/* Card body text */
+html[data-theme="dark"]
+main:has(> aside) > section .bg-white p,
+html[data-theme="dark"]
+main:has(> aside) > section .bg-slate-50 p {
+  color: var(--dashboard-text);
+}
+
+/* Language selector */
+html[data-theme="dark"]
+main:has(> aside) select {
+  background-color: #1e293b !important;
+  color: #f8fafc !important;
+  border-color: #334155 !important;
+}
+
+/* Keep the sidebar dark */
+main:has(> aside) > aside {
+  background-color: #101b35;
+  color: #ffffff;
+}
+
+/* Preserve primary action colors */
+html[data-theme="dark"]
+main:has(> aside) .bg-blue-600 {
+  background-color: #2563eb !important;
+}
+
+html[data-theme="dark"]
+main:has(> aside) .text-blue-600 {
+  color: #60a5fa;
+}
+
+/* Recent conversations separators */
+html[data-theme="dark"]
+main:has(> aside) .divide-slate-100 > :not(:last-child) {
+  border-color: var(--dashboard-border);
+}
+
+/* Accessibility */
+@media (prefers-reduced-motion: reduce) {
+  .premium-card {
+    transition: none;
+  }
+}
+/* ==========================================
+   AGENTDESK AI
+   DASHBOARD DARK / LIGHT THEME
+   ========================================== */
+
+/* Global theme variables */
+
+html[data-theme="light"] {
+  --background: #f5f7fb;
+  --foreground: #172033;
+
+  --premium-text: #172033;
+  --premium-text-muted: #64748b;
+  --premium-border: #e2e8f0;
+  --premium-surface: #ffffff;
+  --premium-surface-muted: #f8fafc;
+  --premium-primary: #2563eb;
+
+  color-scheme: light;
+}
+
+html[data-theme="dark"] {
+  --background: #0b1220;
+  --foreground: #e5edf8;
+
+  --premium-text: #e5edf8;
+  --premium-text-muted: #94a3b8;
+  --premium-border: #29384e;
+  --premium-surface: #152238;
+  --premium-surface-muted: #1b2a40;
+  --premium-primary: #60a5fa;
+
+  color-scheme: dark;
+}
+
+/* Dashboard main background */
+
+html[data-theme="dark"] main:has(> aside) {
+  background: #0b1220 !important;
+  color: #e5edf8 !important;
+}
+
+/* Dashboard content area */
+
+html[data-theme="dark"] main:has(> aside) > section {
+  background: #0b1220;
+}
+
+/* Header */
+
+html[data-theme="dark"] main:has(> aside) header {
+  background: #111c30 !important;
+  border-color: #29384e !important;
+  color: #e5edf8;
+}
+
+/* Main white cards */
+
+html[data-theme="dark"] main:has(> aside) .bg-white {
+  background-color: #152238 !important;
+}
+
+/* Header translucent white */
+
+html[data-theme="dark"] main:has(> aside) .bg-white\/95 {
+  background-color: rgb(17 28 48 / 95%) !important;
+}
+
+/* Pale backgrounds */
+
+html[data-theme="dark"] main:has(> aside) .bg-slate-50 {
+  background-color: #1b2a40 !important;
+}
+
+html[data-theme="dark"] main:has(> aside) .bg-slate-100 {
+  background-color: #23334b !important;
+}
+
+/* Borders */
+
+html[data-theme="dark"] main:has(> aside) .border-slate-200,
+html[data-theme="dark"] main:has(> aside) .border-slate-200\/80,
+html[data-theme="dark"] main:has(> aside) .border-slate-100 {
+  border-color: #29384e !important;
+}
+
+html[data-theme="dark"] main:has(> aside) .divide-slate-100 > :not(:first-child) {
+  border-color: #29384e !important;
+}
+
+/* Dark text */
+
+html[data-theme="dark"] main:has(> aside) .text-slate-900,
+html[data-theme="dark"] main:has(> aside) .text-slate-800,
+html[data-theme="dark"] main:has(> aside) .text-\[\#172033\] {
+  color: #e5edf8 !important;
+}
+
+/* Muted text */
+
+html[data-theme="dark"] main:has(> aside) .text-slate-500,
+html[data-theme="dark"] main:has(> aside) .text-slate-600 {
+  color: #a6b5ca !important;
+}
+
+/* Form fields */
+
+html[data-theme="dark"] main:has(> aside) select {
+  background-color: #1b2a40 !important;
+  border-color: #29384e !important;
+  color: #e5edf8 !important;
+}
+
+/* Dashboard stat card backgrounds */
+
+html[data-theme="dark"] main:has(> aside) .bg-blue-50 {
+  background-color: #172e52 !important;
+}
+
+html[data-theme="dark"] main:has(> aside) .bg-violet-50 {
+  background-color: #2a224d !important;
+}
+
+html[data-theme="dark"] main:has(> aside) .bg-emerald-50 {
+  background-color: #103c36 !important;
+}
+
+html[data-theme="dark"] main:has(> aside) .bg-amber-50 {
+  background-color: #463419 !important;
+}
+
+html[data-theme="dark"] main:has(> aside) .bg-rose-50 {
+  background-color: #442333 !important;
+}
+
+/* Preserve the navy sidebar */
+
+html[data-theme="dark"] main:has(> aside) > aside {
+  background-color: #101b35 !important;
+  color: #ffffff;
+}
+
+/* Light mode main background */
+
+html[data-theme="light"] main:has(> aside) {
+  background-color: #f5f7fb;
+  color: #172033;
+}
+
+/* Smooth theme changes */
+
+main:has(> aside),
+main:has(> aside) header,
+main:has(> aside) section,
+main:has(> aside) button {
+  transition:
+    background-color 180ms ease,
+    border-color 180ms ease,
+    color 180ms ease;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  main:has(> aside),
+  main:has(> aside) header,
+  main:has(> aside) section,
+  main:has(> aside) button {
+    transition: none;
+  }
+}
+
+/* AgentDesk AI Dashboard Theme */
+
+html[data-theme="dark"] main:has(> aside) {
+  background-color: #0b1220 !important;
+  color: #e5edf8 !important;
+}
+
+html[data-theme="dark"] main:has(> aside) > section {
+  background-color: #0b1220;
+}
+
+html[data-theme="dark"] main:has(> aside) header {
+  background-color: #111c30 !important;
+  border-color: #29384e !important;
+  color: #e5edf8;
+}
+
+html[data-theme="dark"] main:has(> aside) .bg-white {
+  background-color: #152238 !important;
+}
+
+html[data-theme="dark"] main:has(> aside) .bg-white\/95 {
+  background-color: rgb(17 28 48 / 95%) !important;
+}
+
+html[data-theme="dark"] main:has(> aside) .bg-slate-50 {
+  background-color: #1b2a40 !important;
+}
+
+html[data-theme="dark"] main:has(> aside) .bg-slate-100 {
+  background-color: #23334b !important;
+}
+
+html[data-theme="dark"] main:has(> aside) .border-slate-200,
+html[data-theme="dark"] main:has(> aside) .border-slate-200\/80,
+html[data-theme="dark"] main:has(> aside) .border-slate-100 {
+  border-color: #29384e !important;
+}
+
+html[data-theme="dark"] main:has(> aside) .text-slate-900,
+html[data-theme="dark"] main:has(> aside) .text-slate-800 {
+  color: #e5edf8 !important;
+}
+
+html[data-theme="dark"] main:has(> aside) .text-slate-500,
+html[data-theme="dark"] main:has(> aside) .text-slate-600 {
+  color: #a6b5ca !important;
+}
+
+html[data-theme="dark"] main:has(> aside) select {
+  background-color: #1b2a40 !important;
+  border-color: #29384e !important;
+  color: #e5edf8 !important;
+}
+
+html[data-theme="dark"] main:has(> aside) .bg-blue-50 {
+  background-color: #172e52 !important;
+}
+
+html[data-theme="dark"] main:has(> aside) .bg-violet-50 {
+  background-color: #2a224d !important;
+}
+
+html[data-theme="dark"] main:has(> aside) .bg-emerald-50 {
+  background-color: #103c36 !important;
+}
+
+html[data-theme="dark"] main:has(> aside) .bg-amber-50 {
+  background-color: #463419 !important;
+}
+
+html[data-theme="dark"] main:has(> aside) .bg-rose-50 {
+  background-color: #442333 !important;
+}
+
+html[data-theme="dark"] main:has(> aside) > aside {
+  background-color: #101b35 !important;
+  color: #ffffff;
+}
+
+html[data-theme="dark"] main:has(> aside) .divide-slate-100 > :not(:first-child) {
+  border-color: #29384e !important;
+}
+
+html[data-theme="dark"] main:has(> aside) .shadow-slate-300 {
+  --tw-shadow-color: #07101e;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  main:has(> aside),
+  main:has(> aside) header,
+  main:has(> aside) section {
+    transition:
+      background-color 180ms ease,
+      color 180ms ease,
+      border-color 180ms ease;
+  }
+}
+
+/* AGENTDESK_DASHBOARD_THEME_V1 */
+
+html[data-theme="dark"] main:has(> aside) {
+  background-color: #0b1220 !important;
+  color: #e5edf8 !important;
+}
+
+html[data-theme="dark"] main:has(> aside) > section {
+  background-color: #0b1220;
+}
+
+html[data-theme="dark"] main:has(> aside) header {
+  background-color: #111c30 !important;
+  border-color: #29384e !important;
+  color: #e5edf8;
+}
+
+html[data-theme="dark"] main:has(> aside) .bg-white {
+  background-color: #152238 !important;
+}
+
+html[data-theme="dark"] main:has(> aside) .bg-white\/95 {
+  background-color: rgb(17 28 48 / 95%) !important;
+}
+
+html[data-theme="dark"] main:has(> aside) .bg-slate-50 {
+  background-color: #1b2a40 !important;
+}
+
+html[data-theme="dark"] main:has(> aside) .bg-slate-100 {
+  background-color: #23334b !important;
+}
+
+html[data-theme="dark"] main:has(> aside) .border-slate-200,
+html[data-theme="dark"] main:has(> aside) .border-slate-200\/80,
+html[data-theme="dark"] main:has(> aside) .border-slate-100 {
+  border-color: #29384e !important;
+}
+
+html[data-theme="dark"] main:has(> aside) .text-slate-900,
+html[data-theme="dark"] main:has(> aside) .text-slate-800 {
+  color: #e5edf8 !important;
+}
+
+html[data-theme="dark"] main:has(> aside) .text-slate-500,
+html[data-theme="dark"] main:has(> aside) .text-slate-600 {
+  color: #a6b5ca !important;
+}
+
+html[data-theme="dark"] main:has(> aside) select {
+  background-color: #1b2a40 !important;
+  border-color: #29384e !important;
+  color: #e5edf8 !important;
+}
+
+html[data-theme="dark"] main:has(> aside) .bg-blue-50 {
+  background-color: #172e52 !important;
+}
+
+html[data-theme="dark"] main:has(> aside) .bg-violet-50 {
+  background-color: #2a224d !important;
+}
+
+html[data-theme="dark"] main:has(> aside) .bg-emerald-50 {
+  background-color: #103c36 !important;
+}
+
+html[data-theme="dark"] main:has(> aside) .bg-amber-50 {
+  background-color: #463419 !important;
+}
+
+html[data-theme="dark"] main:has(> aside) .bg-rose-50 {
+  background-color: #442333 !important;
+}
+
+/* AGENTDESK_THEME_V2 */
+
+:root {
+  --premium-surface: #ffffff;
+  --premium-surface-muted: #f1f5f9;
+  --premium-border: #e2e8f0;
+  --premium-text: #0f172a;
+  --premium-text-muted: #64748b;
+  --premium-primary: #2563eb;
+}
+
+html[data-theme="dark"] {
+  --background: #0b1220;
+  --foreground: #e5edf8;
+
+  --premium-surface: #152238;
+  --premium-surface-muted: #1b2a40;
+  --premium-border: #29384e;
+  --premium-text: #e5edf8;
+  --premium-text-muted: #a6b5ca;
+  --premium-primary: #60a5fa;
+}
+
+html[data-theme="light"] {
+  --background: #f8fafc;
+  --foreground: #0f172a;
+}
+
+html[data-theme="dark"] body,
+html[data-theme="light"] body {
+  background-color: var(--background);
+  color: var(--foreground);
+}
+
+.premium-card {
+  background: var(--premium-surface);
+  color: var(--premium-text);
+  border: 1px solid var(--premium-border);
+  border-radius: 18px;
+  box-shadow: 0 8px 30px rgb(0 0 0 / 4%);
+  transition:
+    background-color 180ms ease,
+    border-color 180ms ease,
+    box-shadow 180ms ease;
+}
+
+.premium-card:hover {
+  box-shadow: 0 12px 35px rgb(0 0 0 / 8%);
+}
+
+.premium-muted {
+  color: var(--premium-text-muted);
+}
+
+.premium-input {
+  background: var(--premium-surface);
+  color: var(--premium-text);
+  border: 1px solid var(--premium-border);
+  border-radius: 12px;
+}
+
+.premium-input:focus-visible {
+  outline: 2px solid var(--premium-primary);
+  outline-offset: 2px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .premium-card {
+    transition: none;
+  }
+}
+/* End of AgentDesk theme. */
+
+/* Global compatibility for pages that still use Tailwind palette utilities. */
+html[data-theme="dark"] .bg-white,
+html[data-theme="dark"] .bg-white\/95 {
+  background-color: var(--premium-surface) !important;
+}
+
+html[data-theme="dark"] .bg-slate-50,
+html[data-theme="dark"] .bg-slate-100,
+html[data-theme="dark"] .bg-gray-50,
+html[data-theme="dark"] .bg-gray-100 {
+  background-color: var(--premium-surface-muted) !important;
+}
+
+html[data-theme="dark"] .text-slate-900,
+html[data-theme="dark"] .text-slate-800,
+html[data-theme="dark"] .text-gray-900,
+html[data-theme="dark"] .text-gray-800 {
+  color: var(--premium-text) !important;
+}
+
+html[data-theme="dark"] .text-slate-700,
+html[data-theme="dark"] .text-slate-600,
+html[data-theme="dark"] .text-slate-500,
+html[data-theme="dark"] .text-gray-700,
+html[data-theme="dark"] .text-gray-600,
+html[data-theme="dark"] .text-gray-500 {
+  color: var(--premium-text-muted) !important;
+}
+
+html[data-theme="dark"] .border-slate-100,
+html[data-theme="dark"] .border-slate-200,
+html[data-theme="dark"] .border-gray-100,
+html[data-theme="dark"] .border-gray-200 {
+  border-color: var(--premium-border) !important;
+}
+
+html[data-theme="dark"] input,
+html[data-theme="dark"] textarea,
+html[data-theme="dark"] select {
+  color: var(--premium-text);
+}
+
+html[data-theme="light"] .public-site .bg-slate-950 {
+  background-color: #f8fafc !important;
+}
+
+html[data-theme="light"] .public-site .bg-slate-900 {
+  background-color: #ffffff !important;
+}
+
+html[data-theme="light"] .public-site .bg-slate-800 {
+  background-color: #f1f5f9 !important;
+}
+
+html[data-theme="light"] .public-site .border-slate-900,
+html[data-theme="light"] .public-site .border-slate-800,
+html[data-theme="light"] .public-site .border-slate-700 {
+  border-color: #e2e8f0 !important;
+}
+
+html[data-theme="light"] .public-site .text-slate-300,
+html[data-theme="light"] .public-site .text-slate-400,
+html[data-theme="light"] .public-site .text-slate-500 {
+  color: #475569 !important;
+}
+
+html[data-theme="light"] .public-site .hover\:text-white:hover {
+  color: #0f172a !important;
+}
+
+html[data-theme="light"] .public-site .hover\:bg-slate-900:hover {
+  background-color: #f1f5f9 !important;
 }

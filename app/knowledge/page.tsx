@@ -1,194 +1,43 @@
 "use client";
 
-import { FormEvent, useEffect, useState } from "react";
+import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { supabase } from "../../lib/supabase";
-import { isBoundedText } from "../../lib/client-security";
+import { supabase } from "@/lib/supabase";
+import { isBoundedText } from "@/lib/client-security";
+import { AuthPreferences, useAuthLocale } from "@/components/auth-preferences";
+import { KnowledgeImport } from "@/components/knowledge-import";
 
-export default function KnowledgePage() {
-  const router = useRouter();
+type Source = { id: string; title: string; content: string; created_at?: string | null };
+const copy = {
+  en:{title:"Knowledge Base",subtitle:"Manage verified information your AI agent can use.",back:"Back to Dashboard",add:"Add knowledge",edit:"Edit knowledge",name:"Knowledge title",info:"Information",save:"Add to Knowledge Base",update:"Save changes",cancel:"Cancel",saving:"Saving...",search:"Search knowledge",empty:"No knowledge sources yet.",noMatch:"No sources match your search.",added:"Knowledge added successfully.",updated:"Knowledge updated successfully.",deleted:"Knowledge deleted successfully.",loadError:"Could not load knowledge sources.",saveError:"Could not save knowledge. Please try again.",deleteError:"Could not delete this source.",invalid:"Enter a title up to 200 characters and content up to 200,000 characters.",remove:"Delete",editAction:"Edit",confirm:"Delete this knowledge source? This cannot be undone.",count:"sources"},
+  ps:{title:"معلوماتي زېرمه",subtitle:"هغه تایید شوي معلومات اداره کړئ چې AI استازی یې کارولی شي.",back:"ډشبورډ ته ستنېدل",add:"معلومات زیات کړئ",edit:"معلومات سم کړئ",name:"د معلوماتو سرلیک",info:"معلومات",save:"زېرمه کې یې زیات کړئ",update:"بدلونونه خوندي کړئ",cancel:"لغوه",saving:"خوندي کېږي...",search:"په معلوماتو کې لټون",empty:"تر اوسه معلوماتي سرچینه نشته.",noMatch:"ستاسې له لټون سره سرچینه ونه موندل شوه.",added:"معلومات په بریالیتوب زیات شول.",updated:"معلومات په بریالیتوب بدل شول.",deleted:"معلومات په بریالیتوب ړنګ شول.",loadError:"معلوماتي سرچینې پورته نه شوې.",saveError:"معلومات خوندي نه شول. بیا هڅه وکړئ.",deleteError:"دا سرچینه ړنګه نه شوه.",invalid:"تر ۲۰۰ تورو سرلیک او تر ۲۰۰،۰۰۰ تورو معلومات ولیکئ.",remove:"ړنګول",editAction:"سمون",confirm:"دا معلوماتي سرچینه ړنګه شي؟ دا کار بېرته نه راګرځي.",count:"سرچینې"},
+  fa:{title:"پایگاه دانش",subtitle:"اطلاعات تأییدشده‌ای را که عامل هوش مصنوعی استفاده می‌کند مدیریت کنید.",back:"بازگشت به داشبورد",add:"افزودن دانش",edit:"ویرایش دانش",name:"عنوان دانش",info:"اطلاعات",save:"افزودن به پایگاه دانش",update:"ذخیره تغییرات",cancel:"لغو",saving:"در حال ذخیره...",search:"جستجو در دانش",empty:"هنوز منبع دانشی وجود ندارد.",noMatch:"منبعی مطابق جستجوی شما یافت نشد.",added:"دانش با موفقیت افزوده شد.",updated:"دانش با موفقیت تغییر کرد.",deleted:"دانش با موفقیت حذف شد.",loadError:"منابع دانش بارگیری نشد.",saveError:"دانش ذخیره نشد. دوباره کوشش کنید.",deleteError:"این منبع حذف نشد.",invalid:"عنوان تا ۲۰۰ نویسه و محتوا تا ۲۰۰٬۰۰۰ نویسه وارد کنید.",remove:"حذف",editAction:"ویرایش",confirm:"این منبع دانش حذف شود؟ این کار قابل بازگشت نیست.",count:"منبع"},
+} as const;
 
-  const [title, setTitle] = useState("");
-  const [content, setContent] = useState("");
-  const [loading, setLoading] = useState(false);
-  const [checkingUser, setCheckingUser] = useState(true);
-  const [message, setMessage] = useState("");
-  const [error, setError] = useState("");
-
-  useEffect(() => {
-    async function checkUser() {
-      const {
-        data: { user },
-      } = await supabase.auth.getUser();
-
-      if (!user) {
-        router.replace("/login");
-        return;
-      }
-
-      setCheckingUser(false);
-    }
-
-    checkUser();
-  }, [router]);
-
-  async function handleSubmit(e: FormEvent<HTMLFormElement>) {
-    e.preventDefault();
-    if (loading) return;
-
-    setMessage("");
-    setError("");
-
-    if (!title.trim() || !content.trim()) {
-      setError("Please enter a title and knowledge content.");
-      return;
-    }
-
-    if (!isBoundedText(title.trim(), 200) || !isBoundedText(content.trim(), 200000)) {
-      setError("Use a title up to 200 characters and knowledge content up to 200,000 characters.");
-      return;
-    }
-
-    setLoading(true);
-
-    const {
-      data: { user },
-    } = await supabase.auth.getUser();
-
-    if (!user) {
-      setLoading(false);
-      router.replace("/login");
-      return;
-    }
-
-    const { error: insertError } = await supabase
-      .from("knowledge_sources")
-      .insert({
-        user_id: user.id,
-        title: title.trim(),
-        content: content.trim(),
-      });
-
-    if (insertError) {
-      setError("Could not save knowledge. Please check the content and try again.");
-      setLoading(false);
-      return;
-    }
-
-    setTitle("");
-    setContent("");
-    setMessage("Knowledge added successfully!");
-    setLoading(false);
-  }
-
-  if (checkingUser) {
-    return (
-      <main className="flex min-h-screen items-center justify-center bg-slate-950 text-white">
-        <p className="text-slate-400">Loading AgentDesk AI...</p>
-      </main>
-    );
-  }
-
-  return (
-    <main className="min-h-screen bg-slate-950 px-6 py-10 text-white">
-      <div className="mx-auto max-w-4xl">
-
-        <button
-          type="button"
-          onClick={() => router.push("/dashboard")}
-          className="mb-8 text-sm font-medium text-blue-400 hover:text-blue-300"
-        >
-          ← Back to Dashboard
-        </button>
-
-        <div className="mb-8">
-          <h1 className="text-3xl font-bold">Knowledge Base</h1>
-
-          <p className="mt-2 text-slate-400">
-            Add information your AI support agent can use to answer customers.
-          </p>
-        </div>
-
-        <div className="rounded-2xl border border-slate-800 bg-slate-900 p-6 md:p-8">
-
-          <div className="mb-7">
-            <h2 className="text-xl font-semibold">
-              Add Knowledge
-            </h2>
-
-            <p className="mt-2 text-sm text-slate-400">
-              Add FAQs, company information, services, policies, or other
-              information about your business.
-            </p>
-          </div>
-
-          {error && (
-            <div className="mb-6 rounded-xl border border-red-500/40 bg-red-500/10 p-4 text-sm text-red-400">
-              {error}
-            </div>
-          )}
-
-          {message && (
-            <div className="mb-6 rounded-xl border border-green-500/40 bg-green-500/10 p-4 text-sm text-green-400">
-              {message}
-            </div>
-          )}
-
-          <form onSubmit={handleSubmit} className="space-y-6">
-
-            <div>
-              <label className="mb-2 block text-sm font-medium">
-                Knowledge title
-              </label>
-
-              <input
-                type="text"
-                value={title}
-                maxLength={200}
-                onChange={(e) => setTitle(e.target.value)}
-                placeholder="Example: Internet Packages"
-                className="w-full rounded-xl border border-slate-700 bg-slate-950 px-4 py-3 outline-none transition focus:border-blue-500"
-              />
-            </div>
-
-            <div>
-              <label className="mb-2 block text-sm font-medium">
-                Information
-              </label>
-
-              <textarea
-                value={content}
-                onChange={(e) => setContent(e.target.value)}
-                placeholder="Enter information that your AI agent should know..."
-                rows={12}
-                maxLength={200000}
-                className="w-full resize-none rounded-xl border border-slate-700 bg-slate-950 px-4 py-3 outline-none transition focus:border-blue-500"
-              />
-            </div>
-
-            <div className="rounded-xl border border-slate-800 bg-slate-950 p-4">
-              <p className="text-sm font-medium">
-                Example
-              </p>
-
-              <p className="mt-2 text-sm leading-6 text-slate-400">
-                Our company provides internet services. Our support hours are
-                8:00 AM to 8:00 PM. Customers can contact our support team for
-                package information, technical problems, and account support.
-              </p>
-            </div>
-
-            <button
-              type="submit"
-              disabled={loading}
-              className="w-full rounded-xl bg-blue-600 px-5 py-3 font-semibold transition hover:bg-blue-500 disabled:cursor-not-allowed disabled:opacity-60"
-            >
-              {loading ? "Saving..." : "Add to Knowledge Base"}
-            </button>
-
-          </form>
-        </div>
-      </div>
-    </main>
-  );
+export default function KnowledgePage(){
+  const router=useRouter(); const {locale,setLocale,rtl}=useAuthLocale(); const t=copy[locale];
+  const [sources,setSources]=useState<Source[]>([]),[title,setTitle]=useState(""),[content,setContent]=useState(""),[query,setQuery]=useState("");
+  const [editingId,setEditingId]=useState<string|null>(null),[loading,setLoading]=useState(true),[saving,setSaving]=useState(false),[deletingId,setDeletingId]=useState<string|null>(null);
+  const [notice,setNotice]=useState(""),[error,setError]=useState(""); const submitting=useRef(false);
+  useEffect(()=>{let active=true;(async()=>{const {data:auth,error:authError}=await supabase.auth.getUser();if(!active)return;if(authError||!auth.user){router.replace("/login?next=/knowledge");return;}const {data,error:loadError}=await supabase.from("knowledge_sources").select("id,title,content,created_at").eq("user_id",auth.user.id).order("created_at",{ascending:false});if(!active)return;if(loadError)setError(t.loadError);else setSources((data??[]) as Source[]);setLoading(false);})();return()=>{active=false;};},[router,t.loadError]);
+  const filtered=useMemo(()=>{const needle=query.trim().toLocaleLowerCase();return needle?sources.filter(item=>`${item.title}\n${item.content}`.toLocaleLowerCase().includes(needle)):sources;},[query,sources]);
+  function resetForm(){setTitle("");setContent("");setEditingId(null);}
+  function beginEdit(source:Source){setEditingId(source.id);setTitle(source.title);setContent(source.content);setError("");setNotice("");window.scrollTo({top:0,behavior:"smooth"});}
+  async function submit(event:FormEvent<HTMLFormElement>){event.preventDefault();if(submitting.current)return;setError("");setNotice("");const cleanTitle=title.trim(),cleanContent=content.trim();if(!isBoundedText(cleanTitle,200)||!isBoundedText(cleanContent,200000)){setError(t.invalid);return;}submitting.current=true;setSaving(true);try{const {data:auth,error:authError}=await supabase.auth.getUser();if(authError||!auth.user){router.replace("/login?next=/knowledge");return;}if(editingId){const {data,error:updateError}=await supabase.from("knowledge_sources").update({title:cleanTitle,content:cleanContent}).eq("id",editingId).eq("user_id",auth.user.id).select("id,title,content,created_at").maybeSingle();if(updateError||!data){setError(t.saveError);return;}setSources(current=>current.map(item=>item.id===editingId?data as Source:item));setNotice(t.updated);}else{const {data,error:insertError}=await supabase.from("knowledge_sources").insert({user_id:auth.user.id,title:cleanTitle,content:cleanContent}).select("id,title,content,created_at").single();if(insertError||!data){setError(t.saveError);return;}setSources(current=>[data as Source,...current]);setNotice(t.added);}resetForm();}catch{setError(t.saveError);}finally{submitting.current=false;setSaving(false);}}
+  async function remove(source:Source){if(deletingId||!window.confirm(t.confirm))return;setDeletingId(source.id);setError("");setNotice("");try{const {data:auth,error:authError}=await supabase.auth.getUser();if(authError||!auth.user){router.replace("/login?next=/knowledge");return;}const {error:deleteError}=await supabase.from("knowledge_sources").delete().eq("id",source.id).eq("user_id",auth.user.id);if(deleteError){setError(t.deleteError);return;}setSources(current=>current.filter(item=>item.id!==source.id));if(editingId===source.id)resetForm();setNotice(t.deleted);}catch{setError(t.deleteError);}finally{setDeletingId(null);}}
+  if(loading)return <main className="grid min-h-screen place-items-center bg-[var(--background)] text-[var(--foreground)]"><span role="status" className="h-7 w-7 animate-spin rounded-full border-2 border-blue-600 border-t-transparent"/></main>;
+  return <main dir={rtl?"rtl":"ltr"} className="min-h-screen bg-[var(--background)] px-4 py-8 text-[var(--foreground)] sm:px-6"><div className="mx-auto max-w-6xl">
+    <header className="mb-8 flex flex-col gap-5 sm:flex-row sm:items-start sm:justify-between"><div><button type="button" onClick={()=>router.push("/dashboard")} className="mb-4 min-h-11 text-sm font-semibold text-blue-500">{rtl?"→":"←"} {t.back}</button><h1 className="text-3xl font-bold">{t.title}</h1><p className="mt-2 text-[var(--premium-text-muted)]">{t.subtitle}</p></div><AuthPreferences locale={locale} onLocaleChange={setLocale}/></header>
+    {(error||notice)&&<div role={error?"alert":"status"} className={`mb-5 rounded-xl border p-4 text-sm ${error?"border-red-500/30 bg-red-500/10 text-red-500":"border-emerald-500/30 bg-emerald-500/10 text-emerald-600"}`}>{error||notice}</div>}
+    <div className="grid gap-6 lg:grid-cols-[minmax(0,.9fr)_minmax(0,1.1fr)]">
+      <section className="h-fit rounded-2xl border border-[var(--premium-border)] bg-[var(--premium-surface)] p-5 shadow-sm sm:p-7"><h2 className="text-xl font-semibold">{editingId?t.edit:t.add}</h2><KnowledgeImport locale={locale} onImported={(source,duplicate)=>{if(!duplicate)setSources(current=>[source,...current]);}}/><form onSubmit={submit} className="mt-6 space-y-5">
+        <div><label htmlFor="knowledge-title" className="mb-2 block text-sm font-medium">{t.name}</label><input id="knowledge-title" value={title} onChange={e=>setTitle(e.target.value)} maxLength={200} required className="min-h-12 w-full rounded-xl border border-[var(--premium-border)] bg-[var(--premium-surface-muted)] px-4 outline-none focus:border-blue-500"/></div>
+        <div><label htmlFor="knowledge-content" className="mb-2 block text-sm font-medium">{t.info}</label><textarea id="knowledge-content" value={content} onChange={e=>setContent(e.target.value)} maxLength={200000} required rows={10} className="w-full resize-y rounded-xl border border-[var(--premium-border)] bg-[var(--premium-surface-muted)] px-4 py-3 outline-none focus:border-blue-500"/><p className="mt-1 text-end text-xs text-[var(--premium-text-muted)]">{content.length.toLocaleString()} / 200,000</p></div>
+        <div className="flex flex-col gap-2 sm:flex-row"><button disabled={saving} className="min-h-12 flex-1 rounded-xl bg-blue-600 px-5 font-semibold text-white hover:bg-blue-500 disabled:opacity-60">{saving?t.saving:editingId?t.update:t.save}</button>{editingId&&<button type="button" onClick={resetForm} className="min-h-12 rounded-xl border border-[var(--premium-border)] px-5 font-semibold">{t.cancel}</button>}</div>
+      </form></section>
+      <section className="rounded-2xl border border-[var(--premium-border)] bg-[var(--premium-surface)] p-5 shadow-sm sm:p-7"><div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between"><h2 className="text-xl font-semibold">{sources.length.toLocaleString()} {t.count}</h2><label className="sr-only" htmlFor="knowledge-search">{t.search}</label><input id="knowledge-search" type="search" value={query} onChange={e=>setQuery(e.target.value)} placeholder={t.search} className="min-h-11 rounded-xl border border-[var(--premium-border)] bg-[var(--premium-surface-muted)] px-4 outline-none focus:border-blue-500"/></div>
+        <div className="mt-5 space-y-3">{filtered.map(source=><article key={source.id} className="rounded-xl border border-[var(--premium-border)] bg-[var(--premium-surface-muted)] p-4"><h3 className="font-semibold">{source.title}</h3><p className="mt-2 line-clamp-4 whitespace-pre-wrap text-sm leading-6 text-[var(--premium-text-muted)]">{source.content}</p><div className="mt-4 flex gap-2"><button type="button" onClick={()=>beginEdit(source)} className="min-h-11 rounded-lg border border-[var(--premium-border)] px-4 text-sm font-semibold hover:border-blue-500">{t.editAction}</button><button type="button" disabled={deletingId===source.id} onClick={()=>void remove(source)} className="min-h-11 rounded-lg border border-red-500/30 px-4 text-sm font-semibold text-red-500 disabled:opacity-50">{t.remove}</button></div></article>)}{!filtered.length&&<p className="rounded-xl border border-dashed border-[var(--premium-border)] p-8 text-center text-sm text-[var(--premium-text-muted)]">{sources.length?t.noMatch:t.empty}</p>}</div>
+      </section>
+    </div>
+  </div></main>;
 }

@@ -1,6 +1,6 @@
 export default function Home() {
   return (
-    <main className="min-h-screen bg-slate-950 text-white">
+    <main className="public-site min-h-screen bg-[var(--background)] text-[var(--foreground)]">
       {/* Navigation */}
       <nav className="mx-auto flex max-w-7xl items-center justify-between px-6 py-6">
         <div className="text-2xl font-bold">

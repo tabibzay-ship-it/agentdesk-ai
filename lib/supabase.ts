@@ -23,11 +23,12 @@ export const supabase = createClient(
 if (typeof window !== "undefined") {
   let currentAccount: string | undefined;
   supabase.auth.onAuthStateChange((event, session) => {
-    const protectedPage = /^\/(dashboard|business|agent|knowledge|conversations|settings|billing|widget|install|chat)(\/|$)/.test(window.location.pathname);
-    if (event === "SIGNED_OUT" && protectedPage) {
-      window.location.replace("/login");
+    const protectedPage = /^\/(dashboard|business|agent|knowledge|conversations|leads|appointments|reports|settings|billing|widget|install|chat)(\/|$)/.test(window.location.pathname);
+    const adminPage = /^\/admin(\/|$)/.test(window.location.pathname) && window.location.pathname !== "/admin/login";
+    if (event === "SIGNED_OUT" && (protectedPage || adminPage)) {
+      window.location.replace(adminPage ? "/admin/login" : "/login");
     }
-    if (event === "SIGNED_IN" && protectedPage && currentAccount &&
+    if (event === "SIGNED_IN" && (protectedPage || adminPage) && currentAccount &&
         session?.user.id !== currentAccount) {
       window.location.reload();
     }
