@@ -3,11 +3,13 @@
 import { FormEvent, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { supabase } from "../../lib/supabase";
-import { AuthPreferences, useAuthLocale } from "@/components/auth-preferences";
+import { AppPreferences as AuthPreferences, useAuthLocale } from "@/components/auth-preferences";
+
+type WidgetLocale = "en" | "ps" | "fa";
 
 export default function WidgetPage() {
   const router = useRouter();
-  const { locale, setLocale, rtl } = useAuthLocale();
+  const { locale: appLocale, setLocale: setAppLocale } = useAuthLocale();
 
   const [agentName, setAgentName] = useState("AI Support Assistant");
   const [welcomeMessage, setWelcomeMessage] = useState(
@@ -17,6 +19,7 @@ export default function WidgetPage() {
   const [position, setPosition] = useState("right");
   const [size, setSize] = useState("standard");
   const [widgetTheme, setWidgetTheme] = useState("system");
+  const [widgetLocale, setWidgetLocale] = useState<WidgetLocale>("en");
   const [publicAgentId, setPublicAgentId] = useState("");
 
   const [loading, setLoading] = useState(true);
@@ -61,6 +64,7 @@ export default function WidgetPage() {
         setPosition(["left","right"].includes(data.position) ? data.position : "right");
         setSize(["compact","standard","large"].includes(data.size) ? data.size : "standard");
         setWidgetTheme(["light","dark","system"].includes(data.theme) ? data.theme : "system");
+        setWidgetLocale(["en", "ps", "fa"].includes(data.locale) ? data.locale as WidgetLocale : "en");
       }
 
       const { data: agent } = await supabase.from("agent_settings").select("public_agent_id").eq("user_id", user.id).maybeSingle();
@@ -107,7 +111,7 @@ export default function WidgetPage() {
       position,
       size,
       theme: widgetTheme,
-      locale,
+      locale: widgetLocale,
     };
 
     const { data: existing, error: checkError } =
@@ -161,7 +165,7 @@ export default function WidgetPage() {
   }
 
   return (
-    <main dir={rtl ? "rtl" : "ltr"} className="min-h-screen bg-[var(--premium-bg)] text-[var(--premium-text)]">
+    <main lang="en" dir="ltr" className="min-h-screen bg-[var(--premium-bg)] text-[var(--premium-text)]">
       <div className="mx-auto max-w-7xl px-6 py-10">
 
         <button
@@ -183,7 +187,7 @@ export default function WidgetPage() {
             looks to your customers.
           </p>
           </div>
-          <AuthPreferences locale={locale} onLocaleChange={setLocale} />
+          <AuthPreferences locale={appLocale} onLocaleChange={setAppLocale} />
         </div>
 
         <div className="grid gap-8 lg:grid-cols-2">
@@ -290,6 +294,22 @@ export default function WidgetPage() {
                 <label className="text-sm font-medium">Widget theme<select value={widgetTheme} onChange={e=>setWidgetTheme(e.target.value)} className="mt-2 min-h-11 w-full rounded-xl border border-[var(--premium-border)] bg-[var(--premium-surface)] px-3"><option value="system">System</option><option value="light">Light</option><option value="dark">Dark</option></select></label>
               </div>
 
+              <label className="block text-sm font-medium">
+                Customer widget language
+                <select
+                  value={widgetLocale}
+                  onChange={(event) => setWidgetLocale(event.target.value as WidgetLocale)}
+                  className="mt-2 min-h-11 w-full rounded-xl border border-[var(--premium-border)] bg-[var(--premium-surface)] px-3"
+                >
+                  <option value="en">English</option>
+                  <option value="ps">Pashto</option>
+                  <option value="fa">Dari</option>
+                </select>
+                <span className="mt-2 block text-xs font-normal text-[var(--premium-text-muted)]">
+                  This affects only the embedded customer chat widget. The AgentDesk AI dashboard remains in English.
+                </span>
+              </label>
+
               {publicAgentId && <div className="rounded-xl border border-[var(--premium-border)] p-4"><p className="text-sm font-semibold">Installation script</p><code className="mt-2 block overflow-x-auto whitespace-nowrap rounded-lg bg-slate-950 p-3 text-xs text-slate-100">{`<script src="${typeof window!=="undefined"?window.location.origin:""}/widget.js" data-agent-id="${publicAgentId}" async></script>`}</code><button type="button" onClick={()=>void navigator.clipboard.writeText(`<script src="${window.location.origin}/widget.js" data-agent-id="${publicAgentId}" async></script>`)} className="mt-3 min-h-11 rounded-xl border px-4 text-sm font-bold">Copy script</button><button type="button" onClick={()=>router.push("/agent")} className="ms-2 min-h-11 rounded-xl border px-4 text-sm font-bold">Domain allowlist</button></div>}
 
               <button
@@ -318,9 +338,28 @@ export default function WidgetPage() {
               </p>
             </div>
 
-            <div className="flex min-h-[480px] items-end justify-end rounded-2xl border border-slate-800 bg-slate-950 p-6">
+            <div
+              dir={widgetLocale === "ps" || widgetLocale === "fa" ? "rtl" : "ltr"}
+              className={`flex min-h-[480px] items-end rounded-2xl border p-4 sm:p-6 ${
+                position === "left" ? "justify-start" : "justify-end"
+              } ${
+                widgetTheme === "dark"
+                  ? "border-slate-800 bg-slate-950"
+                  : widgetTheme === "light"
+                    ? "border-slate-200 bg-slate-100"
+                    : "border-[var(--premium-border)] bg-[var(--background)]"
+              }`}
+            >
 
-              <div className="w-full max-w-sm overflow-hidden rounded-2xl border border-slate-700 bg-slate-900 shadow-2xl">
+              <div className={`w-full overflow-hidden rounded-2xl border shadow-2xl ${
+                size === "compact" ? "max-w-[330px]" : size === "large" ? "max-w-[420px]" : "max-w-[370px]"
+              } ${
+                widgetTheme === "dark"
+                  ? "border-slate-700 bg-slate-900 text-slate-100"
+                  : widgetTheme === "light"
+                    ? "border-slate-200 bg-white text-slate-900"
+                    : "border-[var(--premium-border)] bg-[var(--premium-surface)] text-[var(--premium-text)]"
+              }`}>
 
                 {/* Widget header */}
                 <div
@@ -351,7 +390,13 @@ export default function WidgetPage() {
                 {/* Messages */}
                 <div className="p-5">
 
-                  <div className="max-w-[85%] rounded-2xl bg-slate-800 p-4 text-sm leading-6">
+                  <div className={`max-w-[85%] rounded-2xl p-4 text-sm leading-6 ${
+                    widgetTheme === "dark"
+                      ? "bg-slate-800 text-slate-100"
+                      : widgetTheme === "light"
+                        ? "bg-slate-100 text-slate-900"
+                        : "bg-[var(--premium-surface-muted)] text-[var(--premium-text)]"
+                  }`}>
                     {welcomeMessage ||
                       "Hi! 👋 How can I help you today?"}
                   </div>
@@ -360,8 +405,14 @@ export default function WidgetPage() {
 
                     <input
                       disabled
-                      placeholder="Type your message..."
-                      className="min-w-0 flex-1 rounded-xl border border-slate-700 bg-slate-950 px-4 py-3 text-sm outline-none"
+                      placeholder={widgetLocale === "ps" ? "خپل پیغام ولیکئ..." : widgetLocale === "fa" ? "پیام خود را بنویسید..." : "Type your message..."}
+                      className={`min-w-0 flex-1 rounded-xl border px-4 py-3 text-sm outline-none ${
+                        widgetTheme === "dark"
+                          ? "border-slate-700 bg-slate-950 text-white"
+                          : widgetTheme === "light"
+                            ? "border-slate-300 bg-white text-slate-900"
+                            : "border-[var(--premium-border)] bg-[var(--premium-surface)] text-[var(--premium-text)]"
+                      }`}
                     />
 
                     <button
@@ -372,7 +423,7 @@ export default function WidgetPage() {
                       }}
                       className="rounded-xl px-4 font-semibold text-white"
                     >
-                      Send
+                      {widgetLocale === "ps" ? "ولېږئ" : widgetLocale === "fa" ? "ارسال" : "Send"}
                     </button>
 
                   </div>

@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase";
 import ThemeSwitcher from "@/components/theme-switcher";
 import MarketingPreferences from "@/components/marketing-preferences";
+import { SocialIdentityLinking } from "@/components/social-identity-linking";
 
 export default function SettingsPage() {
   const router = useRouter();
@@ -245,6 +246,13 @@ export default function SettingsPage() {
             >
               Manage Knowledge
             </button>
+          </section>
+
+          {/* Appearance */}
+          <section className={cardClass}>
+            <h2 className="text-xl font-semibold">Connected sign-in methods</h2>
+            <p className={`mb-5 mt-1 ${mutedClass}`}>Link a provider only while signed in. AgentDesk never merges accounts solely because an unverified email matches.</p>
+            <SocialIdentityLinking />
           </section>
 
           {/* Appearance */}

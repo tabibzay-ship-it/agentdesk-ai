@@ -19,10 +19,10 @@ test("seven-day activity uses exact bounded database counts", () => {
   assert.match(source, /\.\.\.activity\.map\(\(result\) => result\.error\)/);
 });
 
-test("dashboard refresh is localized and does not reload the document", () => {
+test("dashboard refresh uses English UI and does not reload the document", () => {
   assert.match(source, /refresh: "Refresh"/);
-  assert.match(source, /refresh: "تازه کول"/);
-  assert.match(source, /refresh: "تازه‌سازی"/);
+  assert.doesNotMatch(source, /\bps:\s*\{/);
+  assert.doesNotMatch(source, /\bfa:\s*\{/);
   assert.match(source, /onClick=\{\(\) => void loadDashboard\(false\)\}/);
   assert.match(source, /if \(loadInFlight\.current\) return;/);
   assert.match(source, /loadInFlight\.current = true;/);

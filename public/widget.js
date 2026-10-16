@@ -109,7 +109,12 @@
           `${baseUrl}/api/widget-settings?agentId=${encodeURIComponent(
             agentId
           )}`,
-          { credentials: "omit" }
+          {
+            credentials: "omit",
+            signal: typeof AbortSignal !== "undefined" && typeof AbortSignal.timeout === "function"
+              ? AbortSignal.timeout(10_000)
+              : undefined,
+          }
         );
 
       if (!response.ok) {
@@ -167,6 +172,54 @@
     let agentIsActive =
       settings.isActive;
 
+    const messagesByLocale = {
+      en: {
+        online: "Online",
+        offline: "Offline",
+        open: "Open AI support chat",
+        close: "Close chat",
+        input: "Type your message...",
+        send: "Send",
+        typing: "AI is typing...",
+        unavailable: "The support agent is offline.",
+        offlineReply: "Our AI support agent is currently offline. Please try again later.",
+        error: "Sorry, something went wrong. Please try again.",
+      },
+      ps: {
+        online: "آنلاین",
+        offline: "آفلاین",
+        open: "د AI مرستې خبرې پرانیزئ",
+        close: "خبرې بندې کړئ",
+        input: "خپل پیغام ولیکئ...",
+        send: "ولېږئ",
+        typing: "AI ځواب لیکي...",
+        unavailable: "د مرستې استازی آفلاین دی.",
+        offlineReply: "زموږ د AI مرستې استازی اوس آفلاین دی. وروسته بیا هڅه وکړئ.",
+        error: "بښنه غواړو، ستونزه رامنځته شوه. بیا هڅه وکړئ.",
+      },
+      fa: {
+        online: "آنلاین",
+        offline: "آفلاین",
+        open: "گفتگوی پشتیبانی هوش مصنوعی را باز کنید",
+        close: "بستن گفتگو",
+        input: "پیام خود را بنویسید...",
+        send: "ارسال",
+        typing: "هوش مصنوعی در حال نوشتن است...",
+        unavailable: "دستیار پشتیبانی آفلاین است.",
+        offlineReply: "دستیار پشتیبانی هوش مصنوعی اکنون آفلاین است. لطفاً بعداً دوباره تلاش کنید.",
+        error: "متأسفیم، مشکلی رخ داد. لطفاً دوباره تلاش کنید.",
+      },
+    };
+    const text = messagesByLocale[settings.locale] || messagesByLocale.en;
+    const isRtl = settings.locale === "ps" || settings.locale === "fa";
+    const prefersDark = window.matchMedia?.("(prefers-color-scheme: dark)").matches === true;
+    const useDarkTheme = settings.theme === "dark" || (settings.theme === "system" && prefersDark);
+    const surface = useDarkTheme ? "#0f172a" : "#ffffff";
+    const canvas = useDarkTheme ? "#020617" : "#f8fafc";
+    const foreground = useDarkTheme ? "#f8fafc" : "#0f172a";
+    const muted = useDarkTheme ? "#94a3b8" : "#475569";
+    const border = useDarkTheme ? "#334155" : "#cbd5e1";
+
     // =========================================
     // CSS
     // =========================================
@@ -190,6 +243,7 @@
           Arial,
           Helvetica,
           sans-serif;
+        direction: ${isRtl ? "rtl" : "ltr"};
       }
 
       #agentdesk-ai-button {
@@ -222,6 +276,14 @@
         transform: scale(1.06);
       }
 
+      #agentdesk-ai-button:focus-visible,
+      #agentdesk-ai-close:focus-visible,
+      #agentdesk-ai-input:focus-visible,
+      #agentdesk-ai-send:focus-visible {
+        outline: 3px solid ${useDarkTheme ? "#ffffff" : "#0f172a"};
+        outline-offset: 3px;
+      }
+
       #agentdesk-ai-button svg {
         width: 28px;
         height: 28px;
@@ -250,11 +312,11 @@
 
         border-radius: 18px;
 
-        background: #0f172a;
-        color: white;
+        background: ${surface};
+        color: ${foreground};
 
         border:
-          1px solid #334155;
+          1px solid ${border};
 
         box-shadow:
           0 20px 60px
@@ -341,7 +403,7 @@
 
         padding: 18px;
 
-        background: #020617;
+        background: ${canvas};
       }
 
       .agentdesk-message {
@@ -360,9 +422,9 @@
       }
 
       .agentdesk-ai-message {
-        background: #1e293b;
+        background: ${useDarkTheme ? "#1e293b" : "#e2e8f0"};
 
-        color: #f8fafc;
+        color: ${foreground};
 
         border-bottom-left-radius:
           5px;
@@ -384,7 +446,7 @@
       .agentdesk-loading {
         margin-top: 12px;
 
-        color: #94a3b8;
+        color: ${muted};
 
         font-size: 13px;
       }
@@ -397,9 +459,9 @@
         padding: 14px;
 
         border-top:
-          1px solid #1e293b;
+          1px solid ${border};
 
-        background: #0f172a;
+        background: ${surface};
       }
 
       #agentdesk-ai-input {
@@ -408,13 +470,13 @@
         flex: 1;
 
         border:
-          1px solid #334155;
+          1px solid ${border};
 
         border-radius: 10px;
 
-        background: #020617;
+        background: ${canvas};
 
-        color: white;
+        color: ${foreground};
 
         padding: 11px 12px;
 
@@ -424,7 +486,7 @@
       }
 
       #agentdesk-ai-input::placeholder {
-        color: #64748b;
+        color: ${muted};
       }
 
       #agentdesk-ai-input:focus {
@@ -462,11 +524,11 @@
         text-align: center;
 
         border-top:
-          1px solid #1e293b;
+          1px solid ${border};
 
-        background: #0f172a;
+        background: ${surface};
 
-        color: #64748b;
+        color: ${muted};
 
         font-size: 10px;
       }
@@ -495,6 +557,16 @@
           max-width: none;
         }
       }
+
+      @media (prefers-reduced-motion: reduce) {
+        #agentdesk-ai-root *,
+        #agentdesk-ai-root *::before,
+        #agentdesk-ai-root *::after {
+          scroll-behavior: auto !important;
+          transition: none !important;
+          animation: none !important;
+        }
+      }
     `;
 
     document.head.appendChild(
@@ -520,6 +592,11 @@
 
     chatWindow.id =
       "agentdesk-ai-window";
+    chatWindow.setAttribute("role", "dialog");
+    chatWindow.setAttribute("aria-modal", "false");
+    chatWindow.setAttribute("aria-label", settings.agentName);
+    chatWindow.setAttribute("aria-hidden", "true");
+    chatWindow.dir = isRtl ? "rtl" : "ltr";
 
     // =========================================
     // Header
@@ -566,8 +643,8 @@
 
     status.textContent =
       agentIsActive
-        ? "● Online"
-        : "● Offline";
+        ? `● ${text.online}`
+        : `● ${text.offline}`;
 
     agentInfo.appendChild(
       agentName
@@ -598,7 +675,7 @@
 
     closeButton.setAttribute(
       "aria-label",
-      "Close chat"
+      text.close
     );
 
     closeButton.textContent =
@@ -621,6 +698,9 @@
 
     messages.id =
       "agentdesk-ai-messages";
+    messages.setAttribute("role", "log");
+    messages.setAttribute("aria-live", "polite");
+    messages.setAttribute("aria-relevant", "additions text");
 
     const welcome =
       document.createElement("div");
@@ -655,7 +735,7 @@
       "text";
 
     input.placeholder =
-      "Type your message...";
+      text.input;
 
     input.autocomplete =
       "off";
@@ -672,13 +752,13 @@
       "button";
 
     sendButton.textContent =
-      "Send";
+      text.send;
 
     if (!agentIsActive) {
       input.disabled = true;
       sendButton.disabled = true;
       input.placeholder =
-        "The support agent is offline.";
+        text.unavailable;
     }
 
     inputArea.appendChild(
@@ -739,8 +819,10 @@
 
     chatButton.setAttribute(
       "aria-label",
-      "Open AI support chat"
+      text.open
     );
+    chatButton.setAttribute("aria-controls", "agentdesk-ai-window");
+    chatButton.setAttribute("aria-expanded", "false");
 
     chatButton.innerHTML = `
       <svg
@@ -877,7 +959,7 @@
         "agentdesk-loading";
 
       loading.textContent =
-        "AI is typing...";
+        text.typing;
 
       messages.appendChild(
         loading
@@ -897,6 +979,10 @@
                 "Content-Type":
                   "application/json",
               },
+
+              signal: typeof AbortSignal !== "undefined" && typeof AbortSignal.timeout === "function"
+                ? AbortSignal.timeout(45_000)
+                : undefined,
 
               body:
                 JSON.stringify({
@@ -925,10 +1011,10 @@
             agentIsActive = false;
 
             status.textContent =
-              "● Offline";
+              `● ${text.offline}`;
 
             addAIMessage(
-              "Our AI support agent is currently offline. Please try again later."
+              text.offlineReply
             );
 
             return;
@@ -945,7 +1031,7 @@
         // =====================================
 
         status.textContent =
-          "● Online";
+          `● ${text.online}`;
 
         agentIsActive = true;
 
@@ -964,7 +1050,7 @@
         }
 
         addAIMessage(
-          "Sorry, something went wrong. Please try again."
+          text.error
         );
       } finally {
         input.disabled =
@@ -974,11 +1060,11 @@
           !agentIsActive;
 
         sendButton.textContent =
-          "Send";
+          text.send;
 
         input.placeholder = agentIsActive
-          ? "Type your message..."
-          : "The support agent is offline.";
+          ? text.input
+          : text.unavailable;
 
         if (agentIsActive) {
           input.focus();
@@ -993,9 +1079,10 @@
     chatButton.addEventListener(
       "click",
       function () {
-        chatWindow.classList.toggle(
-          "agentdesk-open"
-        );
+        const opening = !chatWindow.classList.contains("agentdesk-open");
+        chatWindow.classList.toggle("agentdesk-open", opening);
+        chatWindow.setAttribute("aria-hidden", String(!opening));
+        chatButton.setAttribute("aria-expanded", String(opening));
 
         if (
           chatWindow.classList.contains(
@@ -1020,8 +1107,17 @@
         chatWindow.classList.remove(
           "agentdesk-open"
         );
+        chatWindow.setAttribute("aria-hidden", "true");
+        chatButton.setAttribute("aria-expanded", "false");
+        chatButton.focus();
       }
     );
+
+    document.addEventListener("keydown", function (event) {
+      if (event.key === "Escape" && chatWindow.classList.contains("agentdesk-open")) {
+        closeButton.click();
+      }
+    });
 
     // =========================================
     // Send Button

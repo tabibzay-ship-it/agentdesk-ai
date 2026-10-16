@@ -10,6 +10,8 @@ type BillingData = {
   plans: Plan[];
   subscription: null | { plan_id: string; status: string; current_period_end: string | null; cancel_at_period_end: boolean };
   usage: null | { monthly_limit: number; messages_used: number; period_start: string };
+  trial: null | { status: string; starts_at: string; ends_at: string; credit_limit: number; credits_used: number; ended_at: string | null };
+  paymentMethods: Array<{ id: string; brand: string; last4: string; exp_month: number | null; exp_year: number | null; is_default: boolean }>;
   billingEvents: Array<{ id: string; event_type: string; outcome: string; occurred_at: string | null; created_at: string }>;
   transactions: Array<{ id: string; amount_cents: number; currency: string; status: string; occurred_at: string; created_at: string }>;
   checkout: { available: boolean; message: string };
@@ -24,6 +26,7 @@ export default function BillingPage() {
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
   const [pendingAction, setPendingAction] = useState<string | null>(null);
+  const [autoRenewConsent, setAutoRenewConsent] = useState(false);
 
   async function authorizedPost(path: string, body?: Record<string, unknown>) {
     const { data: { session } } = await supabase.auth.getSession();
@@ -38,11 +41,48 @@ export default function BillingPage() {
     return result;
   }
 
+  async function paymentMethodRequest(method: "POST" | "DELETE", body?: Record<string, unknown>) {
+    const { data: { session } } = await supabase.auth.getSession();
+    if (!session) { router.replace("/login"); throw new Error("Your session has expired."); }
+    const response = await fetch("/api/billing/payment-methods", { method, headers: {
+      Authorization: `Bearer ${session.access_token}`, "Content-Type": "application/json",
+    }, body: JSON.stringify(body ?? {}) });
+    const result = await response.json();
+    if (!response.ok) throw new Error(result.error || "The payment-method request could not be completed.");
+    return result;
+  }
+
+  async function setupPaymentMethod(replacePaymentMethodId?: string) {
+    if (pendingAction) return;
+    setError(""); setPendingAction(replacePaymentMethodId ? `replace:${replacePaymentMethodId}` : "add-method");
+    try {
+      const result = await paymentMethodRequest("POST", replacePaymentMethodId ? { replacePaymentMethodId } : {});
+      const setupUrl = new URL(String(result.setupUrl));
+      if (setupUrl.protocol !== "https:") throw new Error("The payment provider returned an unsafe setup URL.");
+      window.location.assign(setupUrl.href);
+    } catch (actionError) {
+      setError(actionError instanceof Error ? actionError.message : "Payment-method setup could not be started.");
+      setPendingAction(null);
+    }
+  }
+
+  async function removePaymentMethod(paymentMethodId: string) {
+    if (pendingAction || !window.confirm("Remove this saved payment method at the provider?")) return;
+    setError(""); setPendingAction(`remove:${paymentMethodId}`);
+    try {
+      await paymentMethodRequest("DELETE", { paymentMethodId });
+      setData((current) => current ? { ...current, paymentMethods: current.paymentMethods.filter((item) => item.id !== paymentMethodId) } : current);
+      setNotice("Payment method removed.");
+    } catch (actionError) { setError(actionError instanceof Error ? actionError.message : "Payment method could not be removed."); }
+    finally { setPendingAction(null); }
+  }
+
   async function startCheckout(planCode: string) {
     if (pendingAction) return;
     setError(""); setNotice(""); setPendingAction(planCode);
     try {
-      const result = await authorizedPost("/api/billing/checkout", { planCode });
+      if (!autoRenewConsent) throw new Error("Confirm monthly automatic renewal before continuing.");
+      const result = await authorizedPost("/api/billing/checkout", { planCode, autoRenew: true });
       const checkoutUrl = new URL(String(result.checkoutUrl));
       if (checkoutUrl.protocol !== "https:") throw new Error("The payment provider returned an unsafe checkout URL.");
       window.location.assign(checkoutUrl.href);
@@ -117,6 +157,9 @@ export default function BillingPage() {
         {notice && <div role="status" className="mt-8 rounded-xl border border-emerald-500/40 bg-emerald-500/10 p-4 text-emerald-700 dark:text-emerald-200">{notice}</div>}
 
         {data && <>
+          {data.trial && <section className="mt-8 rounded-2xl border border-violet-500/40 bg-violet-500/10 p-6">
+            <div className="flex flex-wrap items-start justify-between gap-4"><div><p className="text-sm font-semibold text-violet-400">5-day Pro trial</p><h2 className="mt-1 text-xl font-bold capitalize">{data.trial.status}</h2><p className="mt-2 text-sm text-[var(--premium-text-muted)]">Trial and Free credits are tracked separately. Your Free allowance remains untouched until the trial ends.</p></div><div className="text-end"><p className="font-semibold">{Math.max(0, data.trial.credit_limit-data.trial.credits_used)} / {data.trial.credit_limit} credits left</p><p className="mt-1 text-sm text-[var(--premium-text-muted)]">Ends {new Date(data.trial.ends_at).toLocaleString()}</p></div></div>
+          </section>}
           <section className="mt-8 grid gap-5 lg:grid-cols-3">
             <div className="rounded-2xl border border-blue-500/40 bg-blue-500/10 p-6 lg:col-span-2">
               <div className="flex flex-wrap items-start justify-between gap-4">
@@ -135,6 +178,11 @@ export default function BillingPage() {
 
           {!data.checkout.available && <div className="mt-6 rounded-xl border border-amber-500/30 bg-amber-500/10 p-4 text-sm text-amber-100"><strong>Payments unavailable:</strong> {data.checkout.message}</div>}
 
+          <label className="mt-6 flex min-h-12 items-start gap-3 rounded-xl border border-[var(--premium-border)] bg-[var(--premium-surface)] p-4 text-sm">
+            <input type="checkbox" checked={autoRenewConsent} onChange={(event) => setAutoRenewConsent(event.target.checked)} className="mt-0.5 h-5 w-5 accent-blue-600" />
+            <span><strong>Monthly automatic renewal</strong><br/><span className="text-[var(--premium-text-muted)]">I agree to monthly renewal at the displayed plan price until I cancel. Cancellation is requested for the end of the current billing period.</span></span>
+          </label>
+
           <section className="mt-10 grid gap-5 md:grid-cols-3">
             {data.plans.map((plan) => {
               const selected = plan.code === currentPlan;
@@ -144,12 +192,19 @@ export default function BillingPage() {
                 <p className="mt-3 min-h-10 text-sm text-slate-400">{plan.description}</p>
                 <ul className="mt-5 space-y-2 text-sm text-slate-300"><li>✓ {plan.agentLimit} AI {plan.agentLimit === 1 ? "Agent" : "Agents"}</li><li>✓ {plan.monthlyResponseLimit.toLocaleString()} AI responses / month</li></ul>
                 <button type="button" onClick={() => void startCheckout(plan.code)}
-                  disabled={selected || plan.priceCents === 0 || !data.checkout.available || pendingAction !== null}
+                  disabled={selected || plan.priceCents === 0 || !data.checkout.available || !autoRenewConsent || pendingAction !== null}
                   className="mt-6 min-h-12 w-full rounded-xl bg-blue-600 px-4 py-3 font-semibold text-white disabled:cursor-not-allowed disabled:bg-slate-800 disabled:text-slate-500">
                   {pendingAction === plan.code ? "Opening secure checkout…" : selected ? "Current plan" : plan.priceCents === 0 ? "Free plan" : data.checkout.available ? `Choose ${plan.name}` : "Checkout unavailable"}
                 </button>
               </article>;
             })}
+          </section>
+
+          <section className="mt-10 rounded-2xl border border-slate-800 bg-slate-900 p-6">
+            <div className="flex flex-wrap items-center justify-between gap-3"><h2 className="text-xl font-semibold">Saved payment methods</h2><button type="button" onClick={() => void setupPaymentMethod()} disabled={!data.checkout.available || pendingAction !== null} className="min-h-11 rounded-lg border border-blue-500/40 px-4 py-2 text-sm text-blue-400 disabled:cursor-not-allowed disabled:border-slate-700 disabled:text-slate-600">{pendingAction === "add-method" ? "Opening provider…" : "Add payment method"}</button></div>
+            <p className="mt-1 text-sm text-slate-400">Cards are collected only on the provider&apos;s hosted page. AgentDesk stores token references and safe display metadata—never card numbers or CVV.</p>
+            {data.paymentMethods.length === 0 ? <p className="mt-5 rounded-xl bg-slate-950 p-4 text-sm text-slate-500">No saved payment method. Add, replace, and remove controls become available only after an approved provider is configured.</p> :
+              <div className="mt-5 space-y-3">{data.paymentMethods.map((method) => <div key={method.id} className="flex flex-wrap items-center justify-between gap-3 rounded-xl bg-slate-950 p-4 text-sm"><div><span className="capitalize">{method.brand} •••• {method.last4}</span><span className="ms-3 text-slate-500">{method.exp_month && method.exp_year ? `Expires ${method.exp_month}/${method.exp_year}` : "Expiry managed by provider"}{method.is_default ? " · Default" : ""}</span></div><div className="flex gap-2"><button type="button" disabled={!data.checkout.available || pendingAction !== null} onClick={() => void setupPaymentMethod(method.id)} className="min-h-11 rounded-lg border border-slate-700 px-3 disabled:opacity-50">Replace</button><button type="button" disabled={!data.checkout.available || pendingAction !== null} onClick={() => void removePaymentMethod(method.id)} className="min-h-11 rounded-lg border border-red-500/40 px-3 text-red-400 disabled:opacity-50">Remove</button></div></div>)}</div>}
           </section>
 
           <section className="mt-10 rounded-2xl border border-slate-800 bg-slate-900 p-6">

@@ -35,8 +35,10 @@ test("only a signed recovery AMR authorizes password update", () => {
   const compiled = { exports: {} };
   vm.runInNewContext(output, { module: compiled, exports: compiled.exports }, { filename });
   const { hasRecoveryAuthorization } = compiled.exports;
-  assert.equal(hasRecoveryAuthorization({ amr: [{ method: "recovery", timestamp: 1 }] }), true);
-  assert.equal(hasRecoveryAuthorization({ amr: [{ method: "password", timestamp: 1 }] }), false);
-  assert.equal(hasRecoveryAuthorization({ amr: [{ method: "otp", timestamp: 1 }] }), false);
-  assert.equal(hasRecoveryAuthorization({}), false);
+  const email = "synthetic@example.test";
+  assert.equal(hasRecoveryAuthorization({ email, amr: [{ method: "recovery", timestamp: 1 }] }, email), true);
+  assert.equal(hasRecoveryAuthorization({ email, amr: [{ method: "otp", timestamp: 1 }] }, email), true);
+  assert.equal(hasRecoveryAuthorization({ email, amr: [{ method: "password", timestamp: 1 }] }, email), false);
+  assert.equal(hasRecoveryAuthorization({ email: "other@example.test", amr: [{ method: "otp", timestamp: 1 }] }, email), false);
+  assert.equal(hasRecoveryAuthorization({}, email), false);
 });

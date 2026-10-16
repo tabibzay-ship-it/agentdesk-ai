@@ -6,10 +6,11 @@ import { useRouter } from "next/navigation";
 import { supabase } from "../../lib/supabase";
 import { isBoundedText, isStrongPassword, isValidEmail } from "../../lib/client-security";
 import { AuthPreferences, useAuthLocale } from "@/components/auth-preferences";
+import { SocialAuthButtons } from "@/components/social-auth-buttons";
 
 export default function RegisterPage() {
   const router = useRouter();
-  const { locale, setLocale, t, rtl } = useAuthLocale();
+  const { locale, setLocale, t, rtl } = useAuthLocale(true);
   const [fullName, setFullName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -72,7 +73,10 @@ export default function RegisterPage() {
             marketing_consent_policy: "2026-10",
             marketing_consent_source: "registration",
           },
-          emailRedirectTo: `${window.location.origin}/login?confirmed=1`,
+          // PKCE confirmation links return an authorization code. Route them
+          // through the callback so the code is exchanged before protected
+          // pages are opened.
+          emailRedirectTo: `${window.location.origin}/auth/callback?next=%2Fdashboard`,
         },
       });
 
@@ -114,7 +118,7 @@ export default function RegisterPage() {
       const { error } = await supabase.auth.resend({
         type: "signup",
         email: registeredEmail,
-        options: { emailRedirectTo: `${window.location.origin}/login?confirmed=1` },
+        options: { emailRedirectTo: `${window.location.origin}/auth/callback?next=%2Fdashboard` },
       });
       if (error?.status === 429) setErrorMessage(t.tooMany);
       else if (error) setErrorMessage(t.createRetry);
@@ -256,6 +260,8 @@ export default function RegisterPage() {
                 {resending ? t.resendingVerification : t.resendVerification}
               </button>
             )}
+
+            <SocialAuthButtons />
 
           </form>
           <div className="mt-5"><AuthPreferences locale={locale} onLocaleChange={setLocale} /></div>

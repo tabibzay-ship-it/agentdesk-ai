@@ -5,7 +5,7 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase";
 import { isBoundedText } from "@/lib/client-security";
-import { AuthPreferences, useAuthLocale } from "@/components/auth-preferences";
+import { AppPreferences as AuthPreferences, useAuthLocale } from "@/components/auth-preferences";
 
 type Tone = "professional" | "friendly" | "concise";
 

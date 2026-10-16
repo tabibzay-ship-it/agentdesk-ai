@@ -11,7 +11,7 @@ test("registration records an explicit optional marketing choice and supports sa
   const page = source("app/register/page.tsx");
   assert.match(page, /marketing_consent:\s*marketingConsent/);
   assert.match(page, /type:\s*"signup"/);
-  assert.match(page, /emailRedirectTo:\s*`\$\{window\.location\.origin\}\/login\?confirmed=1`/);
+  assert.match(page, /emailRedirectTo:\s*`\$\{window\.location\.origin\}\/auth\/callback\?next=%2Fdashboard`/);
   assert.match(page, /error\?\.status === 429/);
   assert.doesNotMatch(page, /marketingConsent[^\n]+required/);
 });
@@ -50,6 +50,47 @@ test("deployment quality gate runs database tests and the production Webpack bui
   assert.match(workflow, /npm run verify:deploy/);
   assert.match(workflow, /npm run build/);
   assert.equal(manifest.scripts.build, "next build --webpack");
+  assert.equal(manifest.scripts.dev, "next dev --webpack");
+  assert.equal(manifest.type, "module", "Next.js ESM source must not be declared as CommonJS");
   assert.equal(manifest.scripts["build:netlify"], "npm run verify:deploy && npm run build");
   assert.ok(manifest.devDependencies["@electric-sql/pglite"]);
+});
+
+test("production deployment validation pins the canonical site and Supabase project", () => {
+  const validator = source("scripts/check-deployment-env.mjs");
+  assert.match(validator, /CONTEXT === "production"/);
+  assert.match(validator, /getagentdeskai\.com/);
+  assert.match(validator, /https:\/\/cdynahtkwtcinjzmxjcs\.supabase\.co/);
+  assert.match(validator, /NEXT_PUBLIC_SUPABASE_URL must use the approved AgentDesk AI Supabase project/);
+});
+
+test("final launch checklist keeps external services disabled until separately verified", () => {
+  const checklist = source("docs/FINAL_PRODUCTION_LAUNCH_CHECKLIST.md");
+  for (const signal of [
+    "Netlify release and rollback",
+    "OpenAI activation",
+    "Payment-provider activation",
+    "SMTP and OAuth",
+    "Monitoring and incident response",
+  ]) assert.ok(checklist.includes(signal), `missing ${signal}`);
+  assert.match(checklist, /Do not activate checkout/);
+  assert.match(checklist, /NEXT_PUBLIC_GOOGLE_AUTH_ENABLED=false/);
+  assert.match(checklist, /last verified Netlify deploy/);
+});
+
+test("AgentDesk lint excludes the separate Reasonix test project", () => {
+  const config = source("eslint.config.mjs");
+  assert.match(config, /"Reasonix-Test\/\*\*"/);
+});
+
+test("disposable Supabase publishes every host port on loopback only", () => {
+  const compose = source("tests/runtime/supabase-e2e.override.yml");
+  const published = [...compose.matchAll(/-\s+"([^"]+):\d+\/tcp"/g)].map(match => match[1]);
+  assert.deepEqual(published, [
+    "127.0.0.1:55421",
+    "127.0.0.1:55424",
+    "127.0.0.1:55432",
+    "127.0.0.1:55433",
+  ]);
+  assert.doesNotMatch(compose, /"(?:0\.0\.0\.0|\[::\]):/);
 });

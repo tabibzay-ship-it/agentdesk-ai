@@ -13,6 +13,9 @@ const eslintConfig = defineConfig([
     "build/**",
     ".netlify/**",
     ".codex-pglite-runtime/**",
+    // A separate user-owned fixture/project kept beside AgentDesk AI. It has
+    // its own CommonJS conventions and must not affect this app's quality gate.
+    "Reasonix-Test/**",
     "next-env.d.ts",
   ]),
 ]);

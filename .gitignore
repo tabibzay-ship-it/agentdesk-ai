@@ -13,6 +13,7 @@
 # testing
 /coverage
 /.codex-pglite-runtime/
+/test-results/
 
 # next.js
 /.next/
@@ -40,6 +41,18 @@ yarn-error.log*
 # local deployment and Supabase tooling state
 /.netlify/
 /supabase/.temp/
+/.tools/
+
+# local release-review artifacts (preserved locally, excluded from releases)
+/theme-backup-*/
+*.backup-*
+*.before-*
+*.encoding-backup
+/app/premium-demo/
+/app/ui-preview/
+
+# Preserved obsolete local E2E harness; superseded by playwright.auth-live.config.ts
+/playwright.auth-isolated.config.ts
 
 # typescript
 *.tsbuildinfo

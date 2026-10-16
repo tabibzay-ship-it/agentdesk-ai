@@ -10,7 +10,7 @@ import { supabase } from "@/lib/supabase";
 
 export default function ResetPasswordPage() {
   const router = useRouter();
-  const { locale, setLocale } = useAuthLocale();
+  const { locale, setLocale } = useAuthLocale(true);
   const [recoveryState, setRecoveryState] = useState<"checking" | "ready" | "invalid">("checking");
   const [password, setPassword] = useState("");
   const [confirm, setConfirm] = useState("");
@@ -23,7 +23,8 @@ export default function ResetPasswordPage() {
     let active = true;
     void supabase.auth.getClaims().then(({ data, error: claimsError }) => {
       if (!active) return;
-      setRecoveryState(!claimsError && hasRecoveryAuthorization(data?.claims) ? "ready" : "invalid");
+      const expectedEmail = sessionStorage.getItem(RECOVERY_EMAIL_KEY) || "";
+      setRecoveryState(!claimsError && hasRecoveryAuthorization(data?.claims, expectedEmail) ? "ready" : "invalid");
     }).catch(() => {
       if (active) setRecoveryState("invalid");
     });
@@ -51,7 +52,8 @@ export default function ResetPasswordPage() {
     setLoading(true);
     try {
       const { data: claimsData, error: claimsError } = await supabase.auth.getClaims();
-      if (claimsError || !hasRecoveryAuthorization(claimsData?.claims)) {
+      const expectedEmail = sessionStorage.getItem(RECOVERY_EMAIL_KEY) || "";
+      if (claimsError || !hasRecoveryAuthorization(claimsData?.claims, expectedEmail)) {
         setRecoveryState("invalid");
         setError("Your recovery authorization is missing or expired. Request a new code.");
         return;

@@ -10,7 +10,7 @@ import { supabase } from "@/lib/supabase";
 
 export default function ForgotPasswordPage() {
   const router = useRouter();
-  const { locale, setLocale } = useAuthLocale();
+  const { locale, setLocale } = useAuthLocale(true);
   const [email, setEmail] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");

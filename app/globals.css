@@ -227,7 +227,7 @@ main:has(> aside) > section .bg-slate-50 p {
   color: var(--dashboard-text);
 }
 
-/* Language selector */
+/* Dashboard form controls */
 html[data-theme="dark"]
 main:has(> aside) select {
   background-color: #1e293b !important;

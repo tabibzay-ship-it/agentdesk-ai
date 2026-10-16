@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useState, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase";
-import { AuthPreferences, useAuthLocale } from "@/components/auth-preferences";
+import { AppPreferences as AuthPreferences, useAuthLocale } from "@/components/auth-preferences";
 
 const sections = ["overview","users","agents","conversations","subscriptions","revenue","health","security","settings"] as const;
 type Section = typeof sections[number];

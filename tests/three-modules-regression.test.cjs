@@ -24,6 +24,7 @@ test("knowledge management provides listing, search, edit, delete and localized 
   assert.match(page, /dir=\{rtl\?"rtl":"ltr"\}/);
   assert.match(page, /معلوماتي زېرمه/);
   assert.match(page, /پایگاه دانش/);
+  assert.match(page, /grid min-w-0 gap-6/, "knowledge columns must shrink inside narrow mobile viewports");
 });
 
 test("knowledge import validates real documents server-side and prevents exact duplicates", () => {
@@ -35,12 +36,13 @@ test("knowledge import validates real documents server-side and prevents exact d
   assert.match(api, /eq\("user_id", auth\.user\.id\)/);
   assert.match(api, /eq\("title", title\)\.eq\("content", content\)/);
   assert.match(ui, /accept="\.pdf,\.docx,\.txt/);
+  assert.match(ui, /min-w-0 max-w-full overflow-hidden/, "native file picker must not overflow narrow mobile viewports");
 });
 
-test("test chat uses English UI and localized security and failure state keys", () => {
+test("test chat uses English UI and shared security and failure state keys", () => {
   const page = source("app/chat/page.tsx");
-  assert.match(page, /useAuthLocale/);
-  assert.match(page, /const t=labels\[locale\]/);
+  assert.match(page, /const t=labels/);
+  assert.doesNotMatch(page, /useAuthLocale|\bps:\s*\{|\bfa:\s*\{/);
   assert.match(page, /setError\(t\.limit\)/);
   assert.match(page, /setError\(!agentOnline\?t\.agentOffline:t\.quota\)/);
   assert.match(page, /aria-label=\{t\.send\}/);
@@ -57,7 +59,7 @@ test("agent configuration saves identity, behavior and widget welcome data for t
 
 test("chat API preserves origin, quota, ownership and rollback protections", () => {
   const api = source("app/api/chat/route.ts");
-  for (const signal of ["isRequestOriginAllowed", "billing_security_reserve_ai_usage", "security_release_ai_usage", "allowed_domains", "public_agent_id", ".eq(\"user_id\", agentId)"]) {
+  for (const signal of ["isRequestOriginAllowed", "billing_security_reserve_ai_usage", "billing_security_release_ai_usage", "allowed_domains", "public_agent_id", ".eq(\"user_id\", agentId)"]) {
     assert.ok(api.includes(signal), `missing ${signal}`);
   }
 });

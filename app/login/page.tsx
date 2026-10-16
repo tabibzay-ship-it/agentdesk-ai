@@ -6,10 +6,11 @@ import { useRouter } from "next/navigation";
 import { supabase } from "../../lib/supabase";
 import { isBoundedText, isValidEmail, safeAuthDestination } from "../../lib/client-security";
 import { AuthPreferences, useAuthLocale } from "@/components/auth-preferences";
+import { SocialAuthButtons } from "@/components/social-auth-buttons";
 
 export default function LoginPage() {
   const router = useRouter();
-  const { locale, setLocale, t, rtl } = useAuthLocale();
+  const { locale, setLocale, t, rtl } = useAuthLocale(true);
 
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -182,6 +183,7 @@ export default function LoginPage() {
             <p className="mt-6 text-center text-xs text-slate-500">
               {t.secureLogin}
             </p>
+            <SocialAuthButtons />
           </form>
           <div className="mt-5"><AuthPreferences locale={locale} onLocaleChange={setLocale} /></div>
         </div>

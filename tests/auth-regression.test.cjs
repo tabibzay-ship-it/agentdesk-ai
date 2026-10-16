@@ -45,7 +45,8 @@ test("login and registration prevent duplicate submissions and expose accessible
     assert.match(page, /role="status"/);
   }
   assert.match(register, /password !== confirmPassword/);
-  assert.match(register, /emailRedirectTo/);
+  assert.match(register, /emailRedirectTo: `\$\{window\.location\.origin\}\/auth\/callback\?next=%2Fdashboard`/);
+  assert.doesNotMatch(register, /emailRedirectTo: `\$\{window\.location\.origin\}\/login/);
 });
 
 test("recovery OTP flow is enumeration-safe and reset requires signed recovery claims", () => {
@@ -70,15 +71,17 @@ test("recovery OTP flow is enumeration-safe and reset requires signed recovery c
 
 test("auth pages use English-only UI and share global theme controls", () => {
   const preferences = source("components/auth-preferences.tsx");
+  const authPreferences = preferences.split("export function AppPreferences")[0];
   const translations = source("lib/auth-i18n.ts");
   for (const page of ["login", "register", "forgot-password", "verify-reset-code", "reset-password"]) {
     const contents = source(`app/${page}/page.tsx`);
-    assert.match(contents, /useAuthLocale/);
+    assert.match(contents, /useAuthLocale\(true\)/);
     assert.match(contents, /<AuthPreferences/);
   }
   assert.match(preferences, /<ThemeSwitcher/);
-  assert.doesNotMatch(preferences, /<select|پښتو|دری/);
+  assert.doesNotMatch(authPreferences, /<select|پښتو|دری/);
   assert.match(preferences, /const locale: AuthLocale = "en"/);
+  assert.doesNotMatch(preferences, /<select|agentdesk-language|AUTH_LANGUAGE_KEY|localStorage/);
   assert.match(translations, /Welcome back/);
 });
 

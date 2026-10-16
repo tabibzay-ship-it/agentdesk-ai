@@ -1,8 +1,37 @@
+import type { Metadata } from "next";
+import Link from "next/link";
+import ThemeSwitcher from "@/components/theme-switcher";
+
+export const metadata: Metadata = {
+  alternates: { canonical: "/" },
+};
+
+const structuredData = {
+  "@context": "https://schema.org",
+  "@type": "SoftwareApplication",
+  name: "AgentDesk AI",
+  applicationCategory: "BusinessApplication",
+  operatingSystem: "Web",
+  url: "https://getagentdeskai.com/",
+  description: "AI-powered customer support agents for business websites.",
+  offers: {
+    "@type": "AggregateOffer",
+    priceCurrency: "USD",
+    lowPrice: "0",
+    highPrice: "29",
+    offerCount: "3",
+  },
+};
+
 export default function Home() {
   return (
     <main className="public-site min-h-screen bg-[var(--background)] text-[var(--foreground)]">
+      <script
+        type="application/ld+json"
+        dangerouslySetInnerHTML={{ __html: JSON.stringify(structuredData).replace(/</g, "\\u003c") }}
+      />
       {/* Navigation */}
-      <nav className="mx-auto flex max-w-7xl items-center justify-between px-6 py-6">
+      <nav aria-label="Primary navigation" className="mx-auto flex max-w-7xl flex-wrap items-center justify-between gap-4 px-4 py-5 sm:px-6 sm:py-6">
         <div className="text-2xl font-bold">
           AgentDesk <span className="text-blue-500">AI</span>
         </div>
@@ -21,20 +50,21 @@ export default function Home() {
           </a>
         </div>
 
-        <div className="flex items-center gap-3">
-          <a
+        <div className="flex flex-wrap items-center justify-end gap-2 sm:gap-3">
+          <ThemeSwitcher compact />
+          <Link
             href="/login"
-            className="px-4 py-2 text-sm text-slate-300 hover:text-white"
+            className="inline-flex min-h-11 items-center px-3 py-2 text-sm text-slate-300 hover:text-white sm:px-4"
           >
             Sign in
-          </a>
+          </Link>
 
-          <a
+          <Link
             href="/register"
-            className="rounded-lg bg-blue-600 px-5 py-2.5 text-sm font-semibold hover:bg-blue-500"
+            className="inline-flex min-h-11 items-center rounded-lg bg-blue-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-blue-500 sm:px-5"
           >
             Start Free
-          </a>
+          </Link>
         </div>
       </nav>
 
@@ -59,12 +89,12 @@ export default function Home() {
           </p>
 
           <div className="mt-9 flex flex-wrap gap-4">
-            <a
+            <Link
               href="/register"
               className="rounded-xl bg-blue-600 px-7 py-3.5 font-semibold hover:bg-blue-500"
             >
               Start for Free →
-            </a>
+            </Link>
 
             <a
               href="#how"
@@ -211,14 +241,20 @@ export default function Home() {
           <p className="mx-auto mt-4 max-w-2xl leading-7 text-slate-300">
             Create your workspace without a credit card. Your dashboard shows your current plan and monthly usage before you publish.
           </p>
-          <a href="/register" className="mt-8 inline-flex rounded-xl bg-blue-600 px-7 py-3.5 font-semibold hover:bg-blue-500">
+          <Link href="/register" className="mt-8 inline-flex min-h-11 items-center rounded-xl bg-blue-600 px-7 py-3.5 font-semibold text-white hover:bg-blue-500">
             Create Free Account →
-          </a>
+          </Link>
         </div>
       </section>
 
-      <footer className="border-t border-slate-900 px-6 py-8 text-center text-sm text-slate-500">
-        © {new Date().getFullYear()} AgentDesk AI
+      <footer className="border-t border-slate-900 px-6 py-8 text-sm text-slate-500">
+        <div className="mx-auto flex max-w-7xl flex-col items-center justify-between gap-3 sm:flex-row">
+          <span>© {new Date().getFullYear()} AgentDesk AI</span>
+          <nav aria-label="Legal" className="flex items-center gap-5">
+            <Link href="/privacy" className="hover:text-white">Privacy Policy</Link>
+            <Link href="/terms" className="hover:text-white">Terms of Service</Link>
+          </nav>
+        </div>
       </footer>
     </main>
   );

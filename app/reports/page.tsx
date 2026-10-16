@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { AuthPreferences, useAuthLocale } from "@/components/auth-preferences";
+import { AppPreferences as AuthPreferences, useAuthLocale } from "@/components/auth-preferences";
 import { reportCsv, reportRange, type ReportRangePreset } from "@/lib/reporting";
 import { supabase } from "@/lib/supabase";
 

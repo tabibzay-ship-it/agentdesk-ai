@@ -20,6 +20,8 @@ type Message = {
   created_at: string;
 };
 
+const CONVERSATION_PAGE_SIZE = 50;
+
 function formatDate(value: string) {
   const date = new Date(value);
   return Number.isNaN(date.getTime())
@@ -38,6 +40,8 @@ export default function ConversationsPage() {
   const [loading, setLoading] = useState(true);
   const [messagesLoading, setMessagesLoading] = useState(false);
   const [error, setError] = useState("");
+  const [hasMore, setHasMore] = useState(false);
+  const [loadingMore, setLoadingMore] = useState(false);
 
   const messageRequest = useRef(0);
 
@@ -129,7 +133,8 @@ export default function ConversationsPage() {
             created_at
           `)
           .eq("user_id", user.id)
-          .order("created_at", { ascending: false });
+          .order("created_at", { ascending: false })
+          .limit(CONVERSATION_PAGE_SIZE + 1);
 
         if (!active) return;
 
@@ -139,7 +144,9 @@ export default function ConversationsPage() {
           return;
         }
 
-        const loaded = (data ?? []) as Conversation[];
+        const page = (data ?? []) as Conversation[];
+        const loaded = page.slice(0, CONVERSATION_PAGE_SIZE);
+        setHasMore(page.length > CONVERSATION_PAGE_SIZE);
         setConversations(loaded);
 
         if (loaded.length > 0) {
@@ -171,6 +178,42 @@ export default function ConversationsPage() {
 
     setSelectedConversation(conversation);
     void loadMessages(conversation.id);
+  }
+
+  async function loadMoreConversations() {
+    if (loadingMore || !hasMore) return;
+    setLoadingMore(true);
+    setError("");
+    try {
+      const { data: { user }, error: authError } = await supabase.auth.getUser();
+      if (authError || !user) {
+        router.replace("/login");
+        return;
+      }
+      const start = conversations.length;
+      const { data, error: pageError } = await supabase
+        .from("conversations")
+        .select("id, customer_name, customer_email, visitor_id, created_at")
+        .eq("user_id", user.id)
+        .order("created_at", { ascending: false })
+        .range(start, start + CONVERSATION_PAGE_SIZE);
+      if (pageError) {
+        setError("Could not load more conversations.");
+        return;
+      }
+      const page = (data ?? []) as Conversation[];
+      setConversations((current) => [
+        ...current,
+        ...page.slice(0, CONVERSATION_PAGE_SIZE).filter(
+          (candidate) => !current.some((item) => item.id === candidate.id)
+        ),
+      ]);
+      setHasMore(page.length > CONVERSATION_PAGE_SIZE);
+    } catch {
+      setError("Could not load more conversations.");
+    } finally {
+      setLoadingMore(false);
+    }
   }
 
   const query = search.trim().toLowerCase();
@@ -284,7 +327,8 @@ export default function ConversationsPage() {
                   </p>
                 </div>
               ) : (
-                filteredConversations.map((conversation) => {
+                <>
+                {filteredConversations.map((conversation) => {
                   const selected =
                     selectedConversation?.id === conversation.id;
 
@@ -332,7 +376,20 @@ export default function ConversationsPage() {
                       </div>
                     </button>
                   );
-                })
+                })}
+                {hasMore && !query && (
+                  <div className="p-4">
+                    <button
+                      type="button"
+                      disabled={loadingMore}
+                      onClick={() => void loadMoreConversations()}
+                      className="min-h-11 w-full rounded-xl border border-slate-200 px-4 text-sm font-semibold hover:bg-slate-50 disabled:cursor-wait disabled:opacity-60 dark:border-slate-700 dark:hover:bg-slate-800"
+                    >
+                      {loadingMore ? "Loading…" : "Load older conversations"}
+                    </button>
+                  </div>
+                )}
+                </>
               )}
             </div>
           </aside>

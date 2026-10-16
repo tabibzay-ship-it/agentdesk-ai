@@ -19,10 +19,15 @@ export function startRecoveryCooldown(durationMs = 60_000): void {
   }
 }
 
-export function hasRecoveryAuthorization(claims: unknown): boolean {
-  if (!claims || typeof claims !== "object") return false;
-  const amr = (claims as { amr?: unknown }).amr;
-  return Array.isArray(amr) && amr.some((entry) =>
-    Boolean(entry && typeof entry === "object" && (entry as { method?: unknown }).method === "recovery"),
-  );
+export function hasRecoveryAuthorization(claims: unknown, expectedEmail: string): boolean {
+  if (!claims || typeof claims !== "object" || !expectedEmail.trim()) return false;
+  const record = claims as { amr?: unknown; email?: unknown };
+  if (typeof record.email !== "string" || record.email.trim().toLowerCase() !== expectedEmail.trim().toLowerCase()) {
+    return false;
+  }
+  return Array.isArray(record.amr) && record.amr.some((entry) => {
+    if (!entry || typeof entry !== "object") return false;
+    const method = (entry as { method?: unknown }).method;
+    return method === "recovery" || method === "otp";
+  });
 }

@@ -15,7 +15,18 @@ if (!supabasePublishableKey || !isPublishableSupabaseKey(supabasePublishableKey)
 
 export const supabase = createClient(
   supabaseUrl,
-  supabasePublishableKey
+  supabasePublishableKey,
+  {
+    auth: {
+      // The OAuth callback exchanges a one-time authorization code. PKCE keeps
+      // the verifier in this browser instead of exposing a reusable secret.
+      flowType: "pkce",
+      // The dedicated callback page processes credentials exactly once and
+      // before considering any existing session. Automatic URL detection would
+      // race that explicit exchange and can consume the one-time code first.
+      detectSessionInUrl: false,
+    },
+  }
 );
 
 // A full navigation discards private page state after logout in another tab or

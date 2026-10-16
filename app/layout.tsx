@@ -4,6 +4,7 @@ import { ThemeProvider } from "@/components/theme-provider";
 import "./globals.css";
 
 export const metadata: Metadata = {
+  metadataBase: new URL("https://getagentdeskai.com"),
   title: {
     default: "AgentDesk AI",
     template: "%s | AgentDesk AI",
@@ -11,6 +12,19 @@ export const metadata: Metadata = {
   description:
     "Create, train and deploy an AI customer support agent for your website.",
   applicationName: "AgentDesk AI",
+  openGraph: {
+    type: "website",
+    url: "/",
+    siteName: "AgentDesk AI",
+    title: "AgentDesk AI — AI customer support for your website",
+    description: "Create, train and deploy an AI customer support agent for your website.",
+  },
+  twitter: {
+    card: "summary",
+    title: "AgentDesk AI — AI customer support for your website",
+    description: "Create, train and deploy an AI customer support agent for your website.",
+  },
+  robots: { index: true, follow: true },
 };
 
 export default function RootLayout({

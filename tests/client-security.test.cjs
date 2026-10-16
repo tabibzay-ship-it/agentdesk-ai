@@ -131,6 +131,7 @@ function pageFixture(relative, overrides = {}, extra = {}, auth = {}) {
     "../../lib/supabase": { supabase },
     "@/lib/supabase": { supabase },
     "@/components/theme-switcher": { default: "ThemeSwitcher" },
+    "@/components/social-identity-linking": { SocialIdentityLinking: "SocialIdentityLinking" },
     "@/components/auth-preferences": {
       AuthPreferences: "AuthPreferences",
       useAuthLocale() {
@@ -199,7 +200,7 @@ function chatFixture(overrides = {}) {
       requests.push({ url, body: JSON.parse(options.body) });
       return { ok: true, async json() { return { reply: "Test reply" }; } };
     },
-  });
+  }, { async getSession() { return { data: { session: { access_token: "synthetic-token" } } }; } });
   return { ...fixture, storage, requests, ownerKey, otherKey, oldVisitor, otherVisitor };
 }
 

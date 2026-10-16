@@ -11,7 +11,7 @@ const CODE_LENGTH = 6;
 
 export default function VerifyResetCodePage() {
   const router = useRouter();
-  const { locale, setLocale } = useAuthLocale();
+  const { locale, setLocale } = useAuthLocale(true);
   const [email] = useState(() => typeof window === "undefined" ? "" : sessionStorage.getItem(RECOVERY_EMAIL_KEY) || "");
   const [digits, setDigits] = useState(() => Array(CODE_LENGTH).fill("") as string[]);
   const [loading, setLoading] = useState(false);
