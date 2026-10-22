@@ -1,5 +1,10 @@
 
-import type { DemoCustomer } from "@/app/premium-demo/demo-data";
+type DemoCustomer = {
+  id: number;
+  name: string;
+  email: string;
+  status: "Active" | "Pending" | "Offline";
+};
 
 type CustomerTableProps = {
   customers: DemoCustomer[];
