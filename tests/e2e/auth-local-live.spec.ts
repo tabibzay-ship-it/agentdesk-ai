@@ -8,6 +8,7 @@ const baseURL = process.env.AUTH_E2E_BASE_URL ?? "http://127.0.0.1:3300";
 const supabaseURL = process.env.AUTH_E2E_SUPABASE_URL ?? "http://127.0.0.1:54321";
 const anonKey = process.env.AUTH_E2E_SUPABASE_ANON_KEY ?? "";
 const mailpitURL = process.env.AUTH_E2E_MAILPIT_URL ?? "http://127.0.0.1:54324";
+const otpExpirySeconds = Number(process.env.AUTH_E2E_OTP_EXPIRY_SECONDS ?? "60");
 const screenshotDir = path.resolve("test-results", "auth-local-live");
 
 test.describe("real local Supabase authentication", () => {
@@ -41,7 +42,9 @@ test.describe("real local Supabase authentication", () => {
       }
     });
 
-    async function latestMailLink(address: string, subject: RegExp) {
+    expect(otpExpirySeconds).toBeGreaterThanOrEqual(30);
+
+    async function latestMailLink(address: string, subject: RegExp, requiredText?: RegExp) {
       const deadline = Date.now() + 12_000;
       while (Date.now() < deadline) {
         const listing = await request.get(`${mailpitURL}/api/v1/messages?limit=100`);
@@ -58,43 +61,24 @@ test.describe("real local Supabase authentication", () => {
           expect(detailResponse.ok()).toBe(true);
           const detail = await detailResponse.json() as { Text?: string; HTML?: string };
           const content = `${detail.Text ?? ""}\n${detail.HTML ?? ""}`.replaceAll("&amp;", "&");
+          if (requiredText) expect(content).toMatch(requiredText);
           const link = content.match(/https?:\/\/[^\s<>"']*\/auth\/v1\/verify[^\s<>"']*/)?.[0];
-          if (link) return link;
+          if (link) {
+            const verificationLink = new URL(link);
+            // Disposable GoTrue emails contain its configured local API URL.
+            // Always route loopback verification links through the independently
+            // checked proxy used by this test, for confirmation and recovery alike.
+            if (["127.0.0.1", "localhost"].includes(verificationLink.hostname)) {
+              const verifiedOrigin = new URL(supabaseURL);
+              verificationLink.protocol = verifiedOrigin.protocol;
+              verificationLink.host = verifiedOrigin.host;
+            }
+            return verificationLink.toString();
+          }
         }
         await page.waitForTimeout(250);
       }
       throw new Error(`No matching local email arrived for ${address}.`);
-    }
-
-    async function latestMailCode(address: string, subject: RegExp) {
-      const deadline = Date.now() + 12_000;
-      while (Date.now() < deadline) {
-        const listing = await request.get(`${mailpitURL}/api/v1/messages?limit=100`);
-        expect(listing.ok()).toBe(true);
-        const body = await listing.json() as {
-          messages?: Array<{ ID: string; To?: Array<{ Address?: string }> | { Address?: string }; Subject?: string }>;
-        };
-        const message = body.messages?.find((candidate) =>
-          (Array.isArray(candidate.To) ? candidate.To : [candidate.To])
-            .some((recipient) => recipient?.Address === address) &&
-          subject.test(candidate.Subject ?? ""));
-        if (message) {
-          const detailResponse = await request.get(`${mailpitURL}/api/v1/message/${message.ID}`);
-          expect(detailResponse.ok()).toBe(true);
-          const detail = await detailResponse.json() as { Text?: string; HTML?: string };
-          const code = `${detail.Text ?? ""}\n${detail.HTML ?? ""}`.match(/\b\d{6}\b/)?.[0];
-          if (code) return code;
-        }
-        await page.waitForTimeout(250);
-      }
-      throw new Error(`No matching local recovery code arrived for ${address}.`);
-    }
-
-    async function enterRecoveryCode(target: typeof page, code: string) {
-      for (let index = 0; index < 6; index += 1) {
-        await target.getByLabel(`Verification code digit ${index + 1}`).fill(code[index]);
-      }
-      await target.getByRole("button", { name: "Verify Code" }).click();
     }
 
     async function registerAndConfirm(email: string, name: string) {
@@ -220,13 +204,13 @@ test.describe("real local Supabase authentication", () => {
     await page.goto(`${baseURL}/forgot-password`);
     checkpoint("recovery request page opened");
     await page.getByLabel("Email address").fill(accountA);
-    await page.getByRole("button", { name: "Send Verification Code" }).click();
-    await page.waitForURL(/\/verify-reset-code/);
-    checkpoint("recovery code requested");
-    const recoveryCode = await latestMailCode(accountA, /reset|recover|password/i);
-    await enterRecoveryCode(page, recoveryCode);
+    await page.getByRole("button", { name: "Send Reset Link" }).click();
+    await expect(page.getByRole("status")).toContainText("If an account exists");
+    checkpoint("recovery link requested");
+    const recoveryLink = await latestMailLink(accountA, /reset|recover|password/i, /AgentDesk AI/i);
+    await page.goto(recoveryLink);
     await page.waitForURL(/\/reset-password/);
-    checkpoint("recovery code verified");
+    checkpoint("recovery link verified");
     await expect(page.getByRole("button", { name: "Reset Password" })).toBeEnabled({ timeout: 10_000 });
     await page.getByLabel("New Password", { exact: true }).fill(replacementPassword);
     await page.getByLabel("Confirm New Password", { exact: true }).fill(replacementPassword);
@@ -246,41 +230,33 @@ test.describe("real local Supabase authentication", () => {
 
     const reused = await browser.newContext();
     const reusedPage = await reused.newPage();
-    await reusedPage.goto(`${baseURL}/verify-reset-code`);
-    await reusedPage.evaluate((email) => sessionStorage.setItem("agentdesk-recovery-email", email), accountA);
-    await reusedPage.reload();
-    await enterRecoveryCode(reusedPage, recoveryCode);
-    await expect(reusedPage.getByText(/incorrect, expired, or has already been used/i)).toBeVisible();
+    await reusedPage.goto(recoveryLink);
+    await expect(reusedPage).not.toHaveURL(/\/reset-password$/, { timeout: 10_000 });
     await reused.close();
 
     await page.evaluate(() => localStorage.clear());
     await page.goto(`${baseURL}/forgot-password`);
     await page.getByLabel("Email address").fill(accountB);
-    await page.getByRole("button", { name: "Send Verification Code" }).click();
-    const expiringCode = await latestMailCode(accountB, /reset|recover|password/i);
-    await page.waitForTimeout(17_000);
+    await page.getByRole("button", { name: "Send Reset Link" }).click();
+    const expiringLink = await latestMailLink(accountB, /reset|recover|password/i);
+    await page.waitForTimeout((otpExpirySeconds + 2) * 1_000);
     const expired = await browser.newContext();
     const expiredPage = await expired.newPage();
-    await expiredPage.goto(`${baseURL}/verify-reset-code`);
-    await expiredPage.evaluate((email) => sessionStorage.setItem("agentdesk-recovery-email", email), accountB);
-    await expiredPage.reload();
-    await enterRecoveryCode(expiredPage, expiringCode);
-    await expect(expiredPage.getByText(/incorrect, expired, or has already been used/i)).toBeVisible();
+    await expiredPage.goto(expiringLink);
+    await expect(expiredPage).not.toHaveURL(/\/reset-password$/, { timeout: 10_000 });
     await expired.close();
 
     await page.evaluate(() => localStorage.clear());
     await page.goto(`${baseURL}/forgot-password`);
     await page.getByLabel("Email address").fill(`missing-${suffix}@example.test`);
-    await page.getByRole("button", { name: "Send Verification Code" }).click();
-    await page.waitForURL(/\/verify-reset-code/);
+    await page.getByRole("button", { name: "Send Reset Link" }).click();
     await expect(page.getByRole("status")).toContainText("If an account exists");
 
     await page.evaluate(() => localStorage.clear());
     await page.goto(`${baseURL}/forgot-password`);
     await page.getByLabel("Email address").fill(accountB);
-    await page.getByRole("button", { name: "Send Verification Code" }).click();
-    await page.waitForURL(/\/verify-reset-code/);
-    await expect(page.getByRole("button", { name: /Resend available in/ })).toBeDisabled();
+    await page.getByRole("button", { name: "Send Reset Link" }).click();
+    await expect(page.getByRole("button", { name: /Try again in/ })).toBeDisabled();
 
     const clientA = createClient(supabaseURL, anonKey, { auth: { persistSession: false, autoRefreshToken: false } });
     const clientB = createClient(supabaseURL, anonKey, { auth: { persistSession: false, autoRefreshToken: false } });

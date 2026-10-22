@@ -1,5 +1,5 @@
 import "server-only";
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import OpenAI from "openai";
 import { createClient } from "@supabase/supabase-js";
 import { NextResponse } from "next/server";
@@ -13,7 +13,8 @@ import { createImageProvider, imageProviderEnabled } from "@/lib/image-provider"
 const OPENAI_MODEL = "gpt-5-mini";
 function getLocalOpenAIBaseUrl() {
   const candidate = process.env.AGENTDESK_LOCAL_OPENAI_BASE_URL;
-  if (process.env.NODE_ENV !== "development" || !candidate) return undefined;
+  const localE2E = process.env.AGENTDESK_LOCAL_E2E === "1";
+  if ((process.env.NODE_ENV !== "development" && !localE2E) || !candidate) return undefined;
   try {
     const parsed = new URL(candidate);
     const loopback = parsed.hostname === "127.0.0.1" || parsed.hostname === "localhost" || parsed.hostname === "[::1]";
@@ -129,6 +130,7 @@ export async function POST(request: Request) {
     const publicAgentId = body.agentId;
     const visitorId = body.visitorId;
     const attachmentIds = body.attachmentIds === undefined ? [] : body.attachmentIds;
+    const requestId = body.requestId;
 
     // =====================================
     // VALIDATE MESSAGE
@@ -180,6 +182,10 @@ export async function POST(request: Request) {
 
     const uuidRegex =
       /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+    if (requestId !== undefined && (typeof requestId !== "string" || !uuidRegex.test(requestId))) {
+      return jsonResponse({ error: "Invalid request ID." }, 400);
+    }
 
     if (!uuidRegex.test(publicAgentId)) {
       return jsonResponse(
@@ -380,16 +386,41 @@ export async function POST(request: Request) {
     }
 
     // =====================================
-    // ATOMIC MONTHLY USAGE RESERVATION
+    // ATOMIC CREDIT + ENTITLEMENT RESERVATION
     // =====================================
+
+    let creditOperation = "text_chat";
+    if (attachmentIds.length > 0) {
+      const { data: attachmentKinds, error: attachmentKindError } = await supabaseAdmin
+        .from("chat_attachments")
+        .select("id,kind")
+        .in("id", attachmentIds)
+        .eq("user_id", agentId)
+        .eq("agent_id", agentId)
+        .eq("visitor_id", visitorId)
+        .is("message_id", null);
+      if (attachmentKindError || !attachmentKinds || attachmentKinds.length !== attachmentIds.length) {
+        return jsonResponse({ error: "One or more attachments are unavailable." }, 400);
+      }
+      const intent = classifyImageRequest(cleanMessage, attachmentKinds.some((item) => item.kind === "image"));
+      creditOperation = intent.kind === "generate" ? "image_generation"
+        : intent.kind === "edit" || intent.kind === "unsupported-edit" ? "image_edit"
+        : "attachment_analysis";
+    } else if (classifyImageRequest(cleanMessage, false).kind === "generate") {
+      creditOperation = "image_generation";
+    }
 
     const {
       data: usageResult,
       error: usageError,
     } = await supabaseAdmin.rpc(
-      "billing_security_reserve_ai_usage",
+      "billing_security_reserve_ai_operation",
       {
         p_user_id: agentId,
+        p_operation: creditOperation,
+        // Durable chat-request idempotency is claimed below. Concurrent losers
+        // release this exact credit reservation in the finally block.
+        p_request_id: null,
       }
     );
 
@@ -422,8 +453,11 @@ export async function POST(request: Request) {
     if (usage.allowed !== true) {
       return jsonResponse(
         {
-          error:
-            "Monthly AI message limit reached.",
+          error: usage.reason === "provider_disabled"
+            ? "AI service is temporarily disabled by the platform administrator."
+            : usage.reason === "daily_user_limit" || usage.reason === "daily_global_limit"
+              ? "The daily AI credit limit has been reached."
+              : "Monthly AI credit limit reached.",
           limitReached: true,
           plan: usage.plan,
           used: usage.used,
@@ -433,7 +467,7 @@ export async function POST(request: Request) {
       );
     }
 
-    if (typeof usage.reservation_id !== "string" || !uuidRegex.test(usage.reservation_id)) {
+    if (typeof usage.credit_reservation_id !== "string" || !uuidRegex.test(usage.credit_reservation_id)) {
       console.error("Invalid usage reservation result.");
       return jsonResponse({ error: "Could not reserve AI usage safely." }, 503);
     }
@@ -443,6 +477,23 @@ export async function POST(request: Request) {
     // =====================================
 
     let keepUsageReservation = false;
+    let claimedRequestKey = false;
+    let keepRequestKey = false;
+
+    const settleUsage = async (inputTokens: number | null = null, outputTokens: number | null = null) => {
+      const { data, error } = await supabaseAdmin.rpc("billing_security_settle_ai_operation", {
+        p_user_id: agentId,
+        p_reservation_id: usage.credit_reservation_id,
+        p_input_tokens: inputTokens,
+        p_output_tokens: outputTokens,
+      });
+      if (error || data !== true) {
+        console.error("AI credit settlement error:");
+        return false;
+      }
+      keepUsageReservation = true;
+      return true;
+    };
 
     try {
       // ===================================
@@ -558,6 +609,48 @@ No custom instructions have been provided.
         );
       }
 
+      // A client-generated UUID survives network retries. The durable key is
+      // claimed before any conversation or message write, so concurrent
+      // retries cannot create duplicate history rows or AI responses.
+      if (typeof requestId === "string") {
+        const requestHash = createHash("sha256").update(JSON.stringify({
+          agentId, visitorId, message: cleanMessage, attachmentIds,
+        })).digest("hex");
+        const { error: claimError } = await supabaseAdmin.from("chat_request_keys").insert({
+          id: requestId, user_id: agentId, visitor_id: visitorId,
+          request_hash: requestHash, status: "processing",
+        });
+        if (claimError) {
+          if (claimError.code !== "23505") return jsonResponse({ error: "Could not protect this request from duplication." }, 503);
+          const { data: existingKey, error: existingKeyError } = await supabaseAdmin.from("chat_request_keys")
+            .select("user_id,visitor_id,request_hash,status,response")
+            .eq("id", requestId).maybeSingle();
+          if (existingKeyError || !existingKey || existingKey.user_id !== agentId || existingKey.visitor_id !== visitorId || existingKey.request_hash !== requestHash) {
+            return jsonResponse({ error: "This request ID cannot be reused." }, 409);
+          }
+          if (existingKey.status === "completed" && existingKey.response && typeof existingKey.response === "object") {
+            return jsonResponse({ ...(existingKey.response as Record<string, unknown>), replayed: true });
+          }
+          return jsonResponse({ error: "This message is already being processed.", retryAfter: 2 }, 409);
+        }
+        claimedRequestKey = true;
+      }
+
+      const completeRequest = async (payload: Record<string, unknown>) => {
+        if (typeof requestId !== "string") return true;
+        const { error } = await supabaseAdmin.from("chat_request_keys").update({
+          status: "completed", response: payload, updated_at: new Date().toISOString(),
+        }).eq("id", requestId).eq("user_id", agentId).eq("status", "processing");
+        if (error) {
+          // Keep the processing key fail-closed: a retry must never duplicate
+          // a response that may already have been persisted.
+          keepRequestKey = true;
+          return false;
+        }
+        keepRequestKey = true;
+        return true;
+      };
+
       // ===================================
       // FIND CONVERSATION
       // ===================================
@@ -606,6 +699,7 @@ No custom instructions have been provided.
             visitor_id: visitorId,
             customer_name:
               "Website Visitor",
+            title: cleanMessage.slice(0, 120) || "Attachment conversation",
           })
           .select("id")
           .single();
@@ -742,8 +836,10 @@ No custom instructions have been provided.
           }
           outputAttachment = attachmentDto(row);
         }
-        keepUsageReservation = true;
-        return jsonResponse({ reply, messageId: aiMessage.id, conversationId, attachments: outputAttachment ? [outputAttachment] : [], usage: { plan: usage.plan, used: usage.used, limit: usage.monthly_limit, remaining: usage.remaining } });
+        if (!await settleUsage()) return jsonResponse({ error: "The result was saved, but usage reconciliation is pending." }, 503);
+        const payload = { reply, messageId: aiMessage.id, conversationId, attachments: outputAttachment ? [outputAttachment] : [], usage: { plan: usage.plan, used: usage.used, limit: usage.monthly_limit, remaining: usage.remaining, operation: usage.operation, creditsCharged: usage.credits_charged } };
+        if (!await completeRequest(payload)) return jsonResponse({ error: "The response was saved but its retry key could not be finalized." }, 503);
+        return jsonResponse(payload);
       }
 
       // ===================================
@@ -958,7 +1054,8 @@ Only say that an attachment was analyzed when its extracted text or image is pre
 
       // Deliberately excludes prompts, response text, headers, account IDs and
       // credentials. This server-only event is safe to retain for operations.
-      console.info("OpenAI telemetry:", responseTelemetry(response, OPENAI_MODEL));
+      const providerUsage = responseTelemetry(response, OPENAI_MODEL);
+      console.info("OpenAI telemetry:", providerUsage);
 
       // ===================================
       // GET AI REPLY
@@ -1010,9 +1107,10 @@ Only say that an attachment was analyzed when its extracted text or image is pre
       // KEEP RESERVED USAGE
       // ===================================
 
-      keepUsageReservation = true;
-
-      return jsonResponse({
+      if (!await settleUsage(providerUsage.inputTokens, providerUsage.outputTokens)) {
+        return jsonResponse({ error: "The response was saved, but usage reconciliation is pending." }, 503);
+      }
+      const payload = {
         reply,
         messageId: aiMessage.id,
         conversationId,
@@ -1023,8 +1121,13 @@ Only say that an attachment was analyzed when its extracted text or image is pre
           used: usage.used,
           limit: usage.monthly_limit,
           remaining: usage.remaining,
+          operation: usage.operation,
+          creditsCharged: usage.credits_charged,
         },
-      });
+      };
+      if (!await completeRequest(payload)) return jsonResponse({ error: "The response was saved but its retry key could not be finalized." }, 503);
+
+      return jsonResponse(payload);
     } finally {
       // ===================================
       // ROLLBACK FAILED AI REQUEST
@@ -1034,16 +1137,19 @@ Only say that an attachment was analyzed when its extracted text or image is pre
         const {
           error: releaseError,
         } = await supabaseAdmin.rpc(
-          "billing_security_release_ai_usage",
+          "billing_security_release_ai_operation",
           {
             p_user_id: agentId,
-            p_reservation_id: usage.reservation_id,
+            p_reservation_id: usage.credit_reservation_id,
           }
         );
 
         if (releaseError) {
           console.error("Usage rollback error:");
         }
+      }
+      if (claimedRequestKey && !keepRequestKey && typeof requestId === "string") {
+        await supabaseAdmin.from("chat_request_keys").delete().eq("id", requestId).eq("user_id", agentId).eq("status", "processing");
       }
     }
   } catch (error) {

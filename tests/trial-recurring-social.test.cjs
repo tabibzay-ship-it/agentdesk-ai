@@ -54,7 +54,7 @@ test("OAuth providers are opt-in and callback destinations are sanitized", () =>
   assert.match(social, /provider === "google" \? "openid email profile" : undefined/);
   assert.match(social, /safeAuthDestination/);
   assert.match(callback, /exchangeCodeForSession/);
-  assert.match(callback, /safeAuthDestination/);
+  assert.match(callback, /safeAuthCallbackDestination/);
   assert.match(callback, /const result = code[\s\S]*exchangeCodeForSession[\s\S]*accessToken && refreshToken[\s\S]*setSession[\s\S]*getSession/);
   assert.doesNotMatch(callback, /existing\.data\.session/);
   assert.match(linking, /linkIdentity/);

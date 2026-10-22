@@ -76,7 +76,9 @@ test("billing migration keeps idempotency, RLS and verified-event ordering", () 
 
 test("widget, conversations, knowledge and chat retain authenticated ownership controls", () => {
   assert.match(read("app/widget/page.tsx"), /\.eq\("user_id", user\.id\)/);
-  assert.match(read("app/conversations/page.tsx"), /\.eq\("user_id", user\.id\)/);
+  const conversationApi = read("app/api/conversations/route.ts");
+  assert.match(conversationApi, /authenticateChatRequest/);
+  assert.match(conversationApi, /\.eq\("user_id", auth\.user\.id\)/);
   assert.match(read("app/knowledge/page.tsx"), /\.eq\("user_id",\s*auth\.user\.id\)/);
   assert.match(read("app/api/chat/route.ts"), /authorization/i);
 });
@@ -94,8 +96,9 @@ test("embedded widget is localized, theme-aware and keyboard accessible", () => 
 
 test("conversation browsing uses bounded tenant-scoped pagination", () => {
   const conversations = read("app/conversations/page.tsx");
-  assert.match(conversations, /CONVERSATION_PAGE_SIZE = 50/);
-  assert.match(conversations, /\.eq\("user_id", user\.id\)[\s\S]*\.range\(start, start \+ CONVERSATION_PAGE_SIZE\)/);
+  const conversationApi = read("app/api/conversations/route.ts");
+  assert.match(conversationApi, /const PAGE_SIZE = 25/);
+  assert.match(conversationApi, /\.eq\("user_id", auth\.user\.id\)[\s\S]*\.range\(offset, offset \+ PAGE_SIZE\)/);
   assert.match(conversations, /Load older conversations/);
 });
 

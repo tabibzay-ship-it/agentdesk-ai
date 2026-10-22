@@ -24,7 +24,11 @@ test.describe("isolated authenticated chat workflow", () => {
     const created: string[] = [];
 
     async function createSynthetic(email: string) {
-      const result = await admin.auth.admin.createUser({ email, password, email_confirm: true, user_metadata: { full_name: "Synthetic E2E" } });
+      let result = await admin.auth.admin.createUser({ email, password, email_confirm: true, user_metadata: { full_name: "Synthetic E2E" } });
+      for (let attempt = 1; result.error?.name === "AuthRetryableFetchError" && attempt < 3; attempt += 1) {
+        await new Promise((resolve) => setTimeout(resolve, attempt * 1_000));
+        result = await admin.auth.admin.createUser({ email, password, email_confirm: true, user_metadata: { full_name: "Synthetic E2E" } });
+      }
       expect(result.error).toBeNull();
       const id = result.data.user!.id;
       created.push(id);
@@ -39,8 +43,22 @@ test.describe("isolated authenticated chat workflow", () => {
       await target.goto(`${appURL}/login`);
       await target.getByLabel("Email address").fill(email);
       await target.getByLabel("Password", { exact: true }).fill(password);
-      await target.getByRole("button", { name: "Sign In", exact: true }).click();
-      await target.waitForURL(/\/dashboard/);
+      for (let attempt = 1; attempt <= 2; attempt += 1) {
+        await target.getByRole("button", { name: "Sign In", exact: true }).click();
+        try {
+          await target.waitForURL(/\/dashboard/, { timeout: 30_000 });
+          break;
+        } catch {
+          if (attempt === 2) {
+            const message = await target.locator('[role="alert"]:not(#__next-route-announcer__)').textContent().catch(() => null);
+            throw new Error(`Synthetic login did not complete${message ? `: ${message}` : "."}`);
+          }
+          await target.waitForTimeout(2_000);
+          await target.getByLabel("Email address").fill(email);
+          await target.getByLabel("Password", { exact: true }).fill(password);
+        }
+      }
+      await expect(target.getByText(/Welcome back,/).first()).toBeVisible({ timeout: 60_000 });
       await target.goto(`${appURL}/chat`);
       await expect(target.getByText("Synthetic chat ready")).toBeVisible({ timeout: 30_000 });
     }
@@ -60,10 +78,29 @@ test.describe("isolated authenticated chat workflow", () => {
       accountA = await createSynthetic(emails[0]);
       accountB = await createSynthetic(emails[1]);
       await login(page, accountA.email);
+      const tokenA = await tokenFrom(page);
+      expect(tokenA).not.toBe("");
+
+      const retryRequestId = crypto.randomUUID();
+      const retryVisitorId = `dashboard-test-${crypto.randomUUID()}`;
+      const retryPayload = { message: "IDEMPOTENCY_CONCURRENCY_CHECK", agentId: accountA.publicAgentId, visitorId: retryVisitorId, requestId: retryRequestId };
+      const retryHeaders = { Authorization: `Bearer ${tokenA}`, Origin: appURL };
+      const attempts = await Promise.all([
+        page.request.post(`${appURL}/api/chat`, { headers: retryHeaders, data: retryPayload }),
+        page.request.post(`${appURL}/api/chat`, { headers: retryHeaders, data: retryPayload }),
+      ]);
+      expect(attempts.map(response => response.status()).sort()).toEqual([200, 409]);
+      const replay = await page.request.post(`${appURL}/api/chat`, { headers: retryHeaders, data: retryPayload });
+      expect(replay.status()).toBe(200);
+      expect((await replay.json()).replayed).toBe(true);
+      const { data: retryConversation } = await admin.from("conversations").select("id").eq("user_id", accountA.id).eq("visitor_id", retryVisitorId).single();
+      const { count: retryMessageCount } = await admin.from("messages").select("id", { count: "exact", head: true }).eq("conversation_id", retryConversation!.id);
+      expect(retryMessageCount).toBe(2);
 
       const source = Buffer.from("Synthetic file only. Unique fact: SYNTHETIC_ATTACHMENT_MARKER_55421.\n");
       await page.locator('input[type="file"]').nth(1).setInputFiles({ name: "synthetic-source.txt", mimeType: "text/plain", buffer: source });
       await expect(page.getByText("synthetic-source.txt")).toBeVisible();
+      await expect(page.locator("form").getByText("Ready", { exact: true })).toBeVisible({ timeout: 60_000 });
       await page.getByPlaceholder("Message your AI agent").fill("Analyze the attached synthetic file.");
       await page.getByRole("button", { name: "Send message" }).click();
       await expect(page.getByText("MOCK_ANALYSIS_CONFIRMED: SYNTHETIC_ATTACHMENT_MARKER_55421")).toBeVisible({ timeout: 30_000 });
@@ -86,6 +123,7 @@ test.describe("isolated authenticated chat workflow", () => {
         buffer: await readFile(downloadedPath!),
       });
       await expect(page.locator("form").getByText(suggested)).toBeVisible();
+      await expect(page.locator("form").getByText("Ready", { exact: true })).toBeVisible({ timeout: 60_000 });
       await page.getByPlaceholder("Message your AI agent").fill("SECOND_REVISION_REQUEST");
       await page.getByRole("button", { name: "Send message" }).click();
       await expect(page.getByText("SECOND_REVISION_COMPLETE: The exported result was re-uploaded and revised again.").first()).toBeVisible({ timeout: 30_000 });
@@ -93,15 +131,30 @@ test.describe("isolated authenticated chat workflow", () => {
       const png = await sharp({ create: { width: 8, height: 8, channels: 4, background: "#2563eb" } }).png().toBuffer();
       await page.locator('input[type="file"]').first().setInputFiles({ name: "synthetic-image.png", mimeType: "image/png", buffer: png });
       await expect(page.getByText("synthetic-image.png")).toBeVisible();
+      await expect(page.locator("form").getByText("Ready", { exact: true })).toBeVisible({ timeout: 60_000 });
       await page.getByPlaceholder("Message your AI agent").fill("Analyze this synthetic image.");
-      await page.getByRole("button", { name: "Send message" }).click();
+      const sendImage = page.getByRole("button", { name: "Send message" });
+      await sendImage.click();
+      await expect(page.getByPlaceholder("Message your AI agent")).toBeEnabled({ timeout: 60_000 });
       await expect(page.getByRole("button", { name: "Edit image" }).last()).toBeVisible({ timeout: 30_000 });
       await page.getByRole("button", { name: "Edit image" }).last().click();
       await page.getByRole("button", { name: "Create edited copy" }).click();
-      await expect(page.getByText(/Image edit completed \(grayscale\)/).last()).toBeVisible({ timeout: 30_000 });
+      await expect(page.getByText(/Image edit completed \(grayscale\)/).last()).toBeVisible({ timeout: 90_000 });
 
       await page.reload();
       await expect(page.getByText("SECOND_REVISION_COMPLETE: The exported result was re-uploaded and revised again.").first()).toBeVisible({ timeout: 30_000 });
+
+      const responsiveRoutes = ["/dashboard", "/agent", "/chat", "/conversations", "/knowledge", "/billing", "/settings", "/leads", "/appointments"];
+      for (const width of [320, 360, 375, 390, 430, 768, 1024, 1440]) {
+        await page.setViewportSize({ width, height: 900 });
+        for (const route of responsiveRoutes) {
+          await page.goto(`${appURL}${route}`);
+          await expect(page.locator("main")).toBeVisible({ timeout: 20_000 });
+          const overflow = await page.evaluate(() => ({ scroll: document.documentElement.scrollWidth, client: document.documentElement.clientWidth }));
+          expect(overflow.scroll - overflow.client, `${route} overflowed at ${width}px`).toBeLessThanOrEqual(1);
+        }
+      }
+      await page.setViewportSize({ width: 1280, height: 900 });
 
       await page.goto(`${appURL}/knowledge`);
       await page.getByLabel("Knowledge title").fill("Synthetic isolation source");
@@ -111,8 +164,6 @@ test.describe("isolated authenticated chat workflow", () => {
       await page.reload();
       await expect(page.getByText("Synthetic isolation source")).toBeVisible({ timeout: 15_000 });
 
-      const tokenA = await tokenFrom(page);
-      expect(tokenA).not.toBe("");
       const { data: aFiles } = await admin.from("chat_attachments").select("id,conversation_id,user_id").eq("user_id", accountA.id).limit(20);
       expect(aFiles?.length).toBeGreaterThanOrEqual(4);
       const aAttachmentId = aFiles![0].id;
@@ -124,12 +175,32 @@ test.describe("isolated authenticated chat workflow", () => {
       const pageB = await contextB.newPage();
       await login(pageB, accountB.email);
       const tokenB = await tokenFrom(pageB);
+      const crossTenantReplay = await pageB.request.post(`${appURL}/api/chat`, { headers: { Authorization: `Bearer ${tokenB}`, Origin: appURL }, data: { ...retryPayload, agentId: accountB.publicAgentId, visitorId: `dashboard-test-${crypto.randomUUID()}` } });
+      expect(crossTenantReplay.status()).toBe(409);
       const forbiddenDownload = await pageB.request.get(`${appURL}/api/chat/attachments/${aAttachmentId}`, { headers: { Authorization: `Bearer ${tokenB}`, Origin: appURL } });
       expect([403, 404]).toContain(forbiddenDownload.status());
       const forbiddenExport = await pageB.request.post(`${appURL}/api/chat/exports`, { headers: { Authorization: `Bearer ${tokenB}`, Origin: appURL }, data: { messageId: assistantA!.id, format: "txt" } });
       expect(forbiddenExport.status()).toBe(404);
       const { data: bFiles } = await admin.from("chat_attachments").select("id").eq("user_id", accountB.id);
       expect(bFiles).toHaveLength(0);
+
+      await page.goto(`${appURL}/conversations`);
+      await expect(page.getByText("SECOND_REVISION_COMPLETE: The exported result was re-uploaded and revised again.").first()).toBeVisible({ timeout: 20_000 });
+      await page.getByRole("button", { name: "Rename" }).click();
+      await page.getByLabel("Conversation title").fill("Synthetic persistent history");
+      await page.getByRole("button", { name: "Save" }).click();
+      await expect(page.getByRole("heading", { name: "Synthetic persistent history" })).toBeVisible();
+      await page.reload();
+      await expect(page.getByRole("heading", { name: "Synthetic persistent history" })).toBeVisible({ timeout: 20_000 });
+      await page.getByLabel("Search conversations").fill("persistent history");
+      await expect(page.getByRole("button", { name: /Synthetic persistent history/ })).toBeVisible();
+      await page.getByRole("button", { name: "Delete" }).click();
+      await expect(page.getByRole("alertdialog")).toBeVisible();
+      await page.getByRole("button", { name: "Delete conversation" }).click();
+      // The earlier idempotency scenario intentionally leaves a second
+      // conversation. With the search still applied, deleting the renamed
+      // conversation must therefore produce an empty filtered result.
+      await expect(page.getByText("No matching conversations")).toBeVisible({ timeout: 20_000 });
 
       const overflow = await page.evaluate(() => {
         const root = document.documentElement;

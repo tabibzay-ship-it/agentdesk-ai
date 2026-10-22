@@ -4,7 +4,7 @@ import Link from "next/link";
 import { ClipboardEvent, FormEvent, KeyboardEvent, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { AuthPreferences, useAuthLocale } from "@/components/auth-preferences";
-import { RECOVERY_EMAIL_KEY, recoveryCooldownSeconds, startRecoveryCooldown } from "@/lib/recovery-flow";
+import { RECOVERY_EMAIL_KEY, RECOVERY_SESSION_KEY, recoveryCooldownSeconds, startRecoveryCooldown } from "@/lib/recovery-flow";
 import { supabase } from "@/lib/supabase";
 
 const CODE_LENGTH = 6;
@@ -12,7 +12,8 @@ const CODE_LENGTH = 6;
 export default function VerifyResetCodePage() {
   const router = useRouter();
   const { locale, setLocale } = useAuthLocale(true);
-  const [email] = useState(() => typeof window === "undefined" ? "" : sessionStorage.getItem(RECOVERY_EMAIL_KEY) || "");
+  const [email, setEmail] = useState("");
+  const [emailReady, setEmailReady] = useState(false);
   const [digits, setDigits] = useState(() => Array(CODE_LENGTH).fill("") as string[]);
   const [loading, setLoading] = useState(false);
   const [resending, setResending] = useState(false);
@@ -23,15 +24,22 @@ export default function VerifyResetCodePage() {
   const submitting = useRef(false);
 
   useEffect(() => {
-    if (!email) {
-      router.replace("/forgot-password");
-      return;
-    }
+    const timer = window.setTimeout(() => {
+      const storedEmail = sessionStorage.getItem(RECOVERY_EMAIL_KEY) || "";
+      setEmail(storedEmail);
+      setEmailReady(true);
+      if (!storedEmail) router.replace("/forgot-password");
+    }, 0);
+    return () => window.clearTimeout(timer);
+  }, [router]);
+
+  useEffect(() => {
+    if (!emailReady || !email) return;
     const update = () => setCooldown(recoveryCooldownSeconds());
     update();
     const timer = window.setInterval(update, 1000);
     return () => window.clearInterval(timer);
-  }, [email, router]);
+  }, [email, emailReady]);
 
   function setCode(value: string) {
     const next = value.replace(/\D/g, "").slice(0, CODE_LENGTH).split("");
@@ -75,6 +83,7 @@ export default function VerifyResetCodePage() {
         return;
       }
       setDigits(Array(CODE_LENGTH).fill(""));
+      sessionStorage.setItem(RECOVERY_SESSION_KEY, "verified");
       router.replace("/reset-password");
     } catch {
       setError("The code could not be verified. Check your connection and try again.");

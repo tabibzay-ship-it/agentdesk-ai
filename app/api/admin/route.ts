@@ -122,7 +122,17 @@ export async function GET(request: Request) {
       if (result.error) throw new Error("security");
       payload = { rows: result.data ?? [], total: result.count ?? 0, page, pageSize, mfaEnforced: true, browserAdminTablesBlocked: true };
     } else {
-      payload = { settings: { paymentsEnabled: false, adminMfaRequired: true, publicAdminSignup: false, attachmentBucketPrivate: true, customerRlsPreserved: true }, writable: false };
+      const [control, costs] = await Promise.all([
+        admin.from("ai_credit_control_config").select("provider_enabled,emergency_shutdown,per_user_daily_credit_limit,global_daily_credit_limit,updated_at").eq("id", true).single(),
+        admin.from("ai_operation_costs").select("operation,credit_cost,enabled").order("operation"),
+      ]);
+      if (control.error || costs.error) throw new Error("settings");
+      payload = {
+        settings: { paymentsEnabled: false, adminMfaRequired: true, publicAdminSignup: false, attachmentBucketPrivate: true, customerRlsPreserved: true },
+        aiCreditControls: control.data,
+        operationCosts: costs.data ?? [],
+        writable: true,
+      };
     }
 
     await writeAdminAudit(admin, user.id, `admin.${section}.read`, requestId, "allowed", { page, pageSize, search: Boolean(search) });
@@ -130,5 +140,57 @@ export async function GET(request: Request) {
   } catch {
     try { await writeAdminAudit(admin, user.id, `admin.${section}.read`, requestId, "failed"); } catch { /* fail closed below */ }
     return adminJson({ error: "Administrator data is temporarily unavailable.", code: "ADMIN_READ_FAILED" }, 503);
+  }
+}
+
+export async function PATCH(request: Request) {
+  const origin = request.headers.get("origin");
+  if (!origin || origin !== new URL(request.url).origin) {
+    return adminJson({ error: "Invalid administrator request origin.", code: "INVALID_ORIGIN" }, 403);
+  }
+  const authentication = await authenticateAdminRequest(request);
+  if ("response" in authentication) return authentication.response;
+  const { admin, user, requestId } = authentication;
+  try {
+    const body = await request.json() as Record<string, unknown>;
+    const costs = body.costs;
+    const userLimit = Number(body.perUserDailyCreditLimit);
+    const globalLimit = Number(body.globalDailyCreditLimit);
+    if (typeof body.providerEnabled !== "boolean" || typeof body.emergencyShutdown !== "boolean" ||
+      !Number.isSafeInteger(userLimit) || userLimit < 1 || userLimit > 100_000 ||
+      !Number.isSafeInteger(globalLimit) || globalLimit < userLimit || globalLimit > 10_000_000 ||
+      !costs || typeof costs !== "object" || Array.isArray(costs)) {
+      return adminJson({ error: "Invalid AI credit controls.", code: "INVALID_SETTINGS" }, 400);
+    }
+    const allowed = new Set(["text_chat", "attachment_analysis", "image_generation", "image_edit"]);
+    const cleanCosts: Record<string, number> = {};
+    for (const [operation, value] of Object.entries(costs)) {
+      if (!allowed.has(operation) || !Number.isSafeInteger(Number(value)) || Number(value) < 1 || Number(value) > 1_000) {
+        return adminJson({ error: "Invalid operation cost.", code: "INVALID_SETTINGS" }, 400);
+      }
+      cleanCosts[operation] = Number(value);
+    }
+    if (Object.keys(cleanCosts).length !== allowed.size) {
+      return adminJson({ error: "Every supported operation needs a credit cost.", code: "INVALID_SETTINGS" }, 400);
+    }
+    const { data, error } = await admin.rpc("admin_update_ai_credit_controls", {
+      p_admin_user_id: user.id,
+      p_provider_enabled: body.providerEnabled,
+      p_emergency_shutdown: body.emergencyShutdown,
+      p_user_daily_limit: userLimit,
+      p_global_daily_limit: globalLimit,
+      p_costs: cleanCosts,
+    });
+    if (error || !data || data.updated !== true) throw new Error("update");
+    await writeAdminAudit(admin, user.id, "admin.ai_credit_controls.update", requestId, "allowed", {
+      providerEnabled: body.providerEnabled,
+      emergencyShutdown: body.emergencyShutdown,
+      perUserDailyCreditLimit: userLimit,
+      globalDailyCreditLimit: globalLimit,
+    });
+    return adminJson({ updated: true });
+  } catch {
+    try { await writeAdminAudit(admin, user.id, "admin.ai_credit_controls.update", requestId, "failed"); } catch { /* fail closed */ }
+    return adminJson({ error: "AI credit controls could not be updated.", code: "ADMIN_UPDATE_FAILED" }, 503);
   }
 }

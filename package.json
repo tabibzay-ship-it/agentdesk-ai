@@ -12,6 +12,7 @@
     "lint": "eslint",
     "typecheck": "next typegen && tsc --noEmit",
     "test": "node --test --test-concurrency=1 tests/*.test.cjs && tsx --test --test-concurrency=1 tests/*.test.ts",
+    "security": "npm run security:scan",
     "security:scan": "node scripts/deployment-security-scan.mjs",
     "env:check": "node scripts/check-deployment-env.mjs",
     "verify:deploy": "npm run lint && npm run typecheck && npm test && npm run security:scan && npm run env:check",
@@ -19,7 +20,8 @@
     "verify:production": "node scripts/production-smoke.mjs",
     "test:auth-e2e": "playwright test tests/e2e/auth-responsive.spec.ts",
     "test:auth-e2e:local-ui": "playwright test --config=playwright.auth-ui-local.config.ts",
-    "test:auth-e2e:local-live": "playwright test --config=playwright.auth-live.config.ts"
+    "test:auth-e2e:local-live": "playwright test --config=playwright.auth-live.config.ts",
+    "test:responsive:local": "playwright test --config=playwright.public-responsive.config.ts"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.117.2",

@@ -1,7 +1,7 @@
 import { expect, test } from "@playwright/test";
 
-const widths = [320, 375, 768, 1024, 1440];
-const pages = ["/login", "/register", "/forgot-password", "/verify-reset-code", "/reset-password"];
+const widths = [320, 360, 375, 390, 430, 768, 1024, 1440];
+const pages = ["/login", "/register", "/forgot-password", "/verify-reset-code", "/reset-password", "/admin/login", "/admin/reset-password"];
 
 for (const width of widths) {
   test(`auth pages remain accessible without horizontal overflow at ${width}px`, async ({ page }) => {
@@ -78,4 +78,19 @@ test("unsafe post-login destinations are never preserved by the login UI", async
   await expect(page).toHaveURL(/\/login/);
   await expect(page.locator("form")).toBeVisible();
   expect(await page.locator("a").evaluateAll(nodes => nodes.some(node => (node as HTMLAnchorElement).href.includes("evil.example")))).toBe(false);
+});
+
+test("forgot-password remains enumeration-safe on success and handles network failure", async ({ page }) => {
+  await page.route("**/auth/v1/recover*", async route => route.fulfill({ status: 200, contentType: "application/json", body: "{}" }));
+  await page.goto("/forgot-password");
+  await page.getByLabel("Email address").fill("unknown@example.test");
+  await page.getByRole("button", { name: "Send Reset Link" }).click();
+  await expect(page.getByRole("status")).toHaveText("If an account exists for this email, you will receive a password reset link.");
+  await page.evaluate(() => localStorage.removeItem("agentdesk-password-recovery-cooldown"));
+  await page.reload();
+  await page.unroute("**/auth/v1/recover*");
+  await page.route("**/auth/v1/recover*", async route => route.abort("internetdisconnected"));
+  await page.getByLabel("Email address").fill("person@example.test");
+  await page.getByRole("button", { name: "Send Reset Link" }).click();
+  await expect(page.locator('[role="alert"]:not(#__next-route-announcer__)')).toContainText("Check your connection");
 });

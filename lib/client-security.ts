@@ -50,3 +50,10 @@ export function safeAuthDestination(value: string | null | undefined): string {
     return "/dashboard";
   }
 }
+
+export function safeAuthCallbackDestination(value: string | null | undefined): string {
+  // Password recovery is the sole authentication page that an incoming,
+  // verified callback may enter. It must be exact so callback input cannot
+  // smuggle a query, fragment or external destination into the reset flow.
+  return value === "/reset-password" ? value : safeAuthDestination(value);
+}

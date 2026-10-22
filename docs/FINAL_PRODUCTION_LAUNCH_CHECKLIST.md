@@ -14,7 +14,7 @@ This checklist prepares the existing `getagentdeskai.com` deployment. It does no
 ## OpenAI activation
 
 1. The server uses `gpt-5-mini`, `maxRetries: 0`, a 45-second timeout, and `store: false`. The browser never receives the API key.
-2. Keep reservation, rate-limit, attachment ownership, and exact refund checks enabled. Operations telemetry may retain status, model, token counts, safe provider/request IDs and error classification only; it must not retain prompts, responses, headers, account IDs, or secrets.
+2. Keep rate limits, attachment ownership, atomic multi-credit reservations, exact refunds, settlement, per-user/global daily ceilings, and the emergency shutdown enabled. Verify the append-only private ledger is inaccessible to browser roles. Operations telemetry may retain status, model, token counts, safe provider/request IDs and error classification only; it must not retain prompts, responses, headers, account IDs, or secrets.
 3. Before public launch, separately authorize one synthetic, quota-bounded production request. Record status, visible output, usage, incomplete reason and estimated cost. Do not retry a paid failure automatically.
 4. Alert on rising provider authentication, rate-limit, timeout, incomplete-response, persistence, and quota-refund failures.
 
@@ -35,7 +35,7 @@ Rehearse invalid signatures, duplicates, replay, out-of-order events, cancellati
 
 ## SMTP and OAuth
 
-1. For recovery email, verify the Brevo transactional sender/domain, SPF, DKIM and DMARC; install the reviewed six-digit `{{ .Token }}` template without a recovery link. Test one approved disposable recipient and distinguish provider acceptance from inbox delivery.
+1. For recovery email, verify the Brevo transactional sender/domain, SPF, DKIM and DMARC; install the reviewed one-time-link template using `{{ .ConfirmationURL }}` without click rewriting or tracking parameters. Test one approved disposable recipient, including expiry, single use and replay rejection, and distinguish provider acceptance from inbox delivery.
 2. Confirm Supabase Site URL `https://getagentdeskai.com` and exact callback/redirect allow-list entries before changing Auth settings.
 3. Keep `NEXT_PUBLIC_GOOGLE_AUTH_ENABLED=false` while the Afghanistan Google Cloud onboarding blocker remains. Keep Facebook disabled until its app, scopes, privacy review and real callback are approved.
 4. A real OAuth login must confirm PKCE callback completion, safe local redirect, account isolation, identity-linking behavior and one-trial-per-verified-identity before its public flag is enabled.

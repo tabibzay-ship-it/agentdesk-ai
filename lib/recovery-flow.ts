@@ -1,5 +1,6 @@
 export const RECOVERY_EMAIL_KEY = "agentdesk-recovery-email";
 export const RECOVERY_COOLDOWN_KEY = "agentdesk-password-recovery-cooldown";
+export const RECOVERY_SESSION_KEY = "agentdesk-password-recovery-session";
 
 export function recoveryCooldownSeconds(now = Date.now()): number {
   if (typeof window === "undefined") return 0;
@@ -19,12 +20,10 @@ export function startRecoveryCooldown(durationMs = 60_000): void {
   }
 }
 
-export function hasRecoveryAuthorization(claims: unknown, expectedEmail: string): boolean {
-  if (!claims || typeof claims !== "object" || !expectedEmail.trim()) return false;
+export function hasRecoveryAuthorization(claims: unknown): boolean {
+  if (!claims || typeof claims !== "object") return false;
   const record = claims as { amr?: unknown; email?: unknown };
-  if (typeof record.email !== "string" || record.email.trim().toLowerCase() !== expectedEmail.trim().toLowerCase()) {
-    return false;
-  }
+  if (typeof record.email !== "string" || !record.email.trim()) return false;
   return Array.isArray(record.amr) && record.amr.some((entry) => {
     if (!entry || typeof entry !== "object") return false;
     const method = (entry as { method?: unknown }).method;

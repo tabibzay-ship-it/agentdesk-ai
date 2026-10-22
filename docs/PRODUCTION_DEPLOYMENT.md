@@ -38,9 +38,9 @@ Each numbered item requires its own explicit authorization when it changes a pro
 
 1. Commit the reviewed workflow and application changes on a feature branch, push it, and confirm the GitHub `verify` job passes with no skipped database tests.
 2. Activate the approved `main` ruleset only after GitHub has registered the exact required check. Confirm the repository owner can merge their own pull request after the check passes.
-3. Revalidate the encrypted production backup and run read-only schema preflights. Apply only the separately approved pending migrations in dependency order: Super Admin, Leads/Appointments, then Marketing Consent. Never apply the staging baseline.
+3. Revalidate a fresh encrypted production backup and its isolated restore, then run read-only schema preflights. Apply only separately approved pending migrations in exact filename order through `20261017000000_ai_credit_controls.sql`; this includes Super Admin, Leads/Appointments, Marketing Consent, Trial/Billing metadata, Conversation History, Chat Request Idempotency, and AI Credit Controls. Record and approve every SHA-256 before execution. Never apply the staging baseline.
 4. Create the administrator through the normal Supabase Auth flow, verify the user, provision the exact user ID through the controlled one-time database procedure, and enroll TOTP before using `/admin`.
-5. Install the reviewed recovery OTP email template, verify the sender domain, SPF, DKIM and DMARC, then test delivery with an approved disposable recipient. Do not log OTP values.
+5. Install the reviewed one-time recovery-link email template, verify the sender domain, SPF, DKIM and DMARC, then test delivery, expiry, single use and replay rejection with an approved disposable recipient. Do not log tokens or full recovery URLs.
 6. Keep billing disabled until a lawful provider, webhook secret and server-side product mappings are approved. Rehearse signature, replay, cancellation and out-of-order-event handling before activation.
 7. Run one explicitly authorized, quota-bounded AI inference test with synthetic content. Confirm usage reservation and refund behavior without customer data.
 8. Merge through the protected branch and allow the existing Netlify site to build. Do not create another site or change DNS.
@@ -49,6 +49,8 @@ Each numbered item requires its own explicit authorization when it changes a pro
 ## Database migrations
 
 Netlify and GitHub workflows must never apply Supabase migrations. Before a release, compare the production migration ledger with `supabase/migrations` using authorized read-only access. Apply pending migrations to staging first, take the documented logical backup, run the database/security suites, and request explicit production authorization. Follow `docs/BILLING_MIGRATION_RUNBOOK.md` and `docs/PRODUCTION_BILLING_BACKUP_PLAN.md` for backup and recovery.
+
+The chat release containing `billing_security_reserve_ai_operation` must not be published before `20261017000000_ai_credit_controls.sql` is verified in production. After the migration, keep the emergency shutdown available, confirm the four operation costs and daily limits through the AAL2 Super Admin page, then deploy the matching application commit. If the application smoke test fails, enable the emergency shutdown before rolling application code back; do not delete ledger rows or decrement counters manually.
 
 ## Rollback
 
@@ -60,4 +62,4 @@ Netlify and GitHub workflows must never apply Supabase migrations. Before a rele
 
 ## Safe authenticated smoke checklist
 
-Using only dedicated test accounts, verify Dashboard, AI Chat without sending a paid provider request, Knowledge Base, Settings, Light/Dark/System, password recovery delivery, incorrect/expired/reused recovery codes, and logout/login. Never use real customer accounts or paid checkout during routine smoke tests.
+Using only dedicated test accounts, verify Dashboard, AI Chat without sending a paid provider request, Knowledge Base, Settings, Light/Dark/System, password recovery delivery, invalid/expired/reused recovery links, and logout/login. Never use real customer accounts or paid checkout during routine smoke tests.

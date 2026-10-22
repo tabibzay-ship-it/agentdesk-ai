@@ -76,9 +76,14 @@ test("admin authentication requires verified TOTP and an AAL2 session", async ()
   assert.equal(allowed.user.id, "11111111-1111-4111-8111-111111111111");
 });
 
-test("admin API exposes no public signup or mutation handler and hides conversation contents", () => {
+test("admin API exposes no public signup, secures audited settings mutation and hides conversation contents", () => {
   const route = fs.readFileSync(path.join(root, "app/api/admin/route.ts"), "utf8");
-  assert.doesNotMatch(route, /export async function (POST|PUT|PATCH|DELETE)/);
+  assert.doesNotMatch(route, /export async function (POST|PUT|DELETE)/);
+  assert.match(route, /export async function PATCH/);
+  assert.match(route, /origin !== new URL\(request\.url\)\.origin/);
+  assert.match(route, /authenticateAdminRequest\(request\)/);
+  assert.match(route, /admin_update_ai_credit_controls/);
+  assert.match(route, /admin\.ai_credit_controls\.update/);
   assert.match(route, /conversations[\s\S]*select\("id,user_id,created_at"\)/);
   assert.doesNotMatch(route, /messages"\)\.select\("[^\"]*content/);
   assert.match(route, /paymentsEnabled: false/);

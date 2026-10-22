@@ -993,6 +993,9 @@
 
                   visitorId:
                     visitorId,
+
+                  requestId:
+                    crypto.randomUUID(),
                 }),
             }
           );

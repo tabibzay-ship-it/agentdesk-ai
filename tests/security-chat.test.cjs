@@ -65,8 +65,9 @@ function fixture(options = {}) {
     async rpc(name, args) {
       rpcs.push({ name, args });
       if (name === "check_chat_rate_limit") return { data: !(args.p_visitor_id === "__agent_burst__" ? options.accountLimited : options.visitorLimited), error: options.rateError ? { message: "PRIVATE_ERROR_DETAILS" } : null };
-      if (name === "billing_security_reserve_ai_usage") return { data: { allowed: !options.monthlyLimited, reservation_id: reservation, period_start: "2026-10-01", plan: "free", used: 1, monthly_limit: 100, remaining: 99 }, error: null };
-      if (name === "billing_security_release_ai_usage") return { data: true, error: null };
+      if (name === "billing_security_reserve_ai_operation") return { data: { allowed: !options.monthlyLimited, credit_reservation_id: reservation, operation: "text_chat", credits_charged: 1, period_start: "2026-10-01", plan: "free", used: 1, monthly_limit: 100, remaining: 99 }, error: null };
+      if (name === "billing_security_settle_ai_operation") return { data: true, error: null };
+      if (name === "billing_security_release_ai_operation") return { data: true, error: null };
       throw new Error(`Unexpected RPC ${name}`);
     },
   };
@@ -163,7 +164,7 @@ test("rotating visitor IDs cannot bypass the account rate bucket", async () => {
 });
 test("visitor, monthly and rate-system failures stop before AI and reservation writes", async () => {
   for (const options of [{ visitorLimited: true }, { monthlyLimited: true }, { rateError: true }]) {
-    const f = fixture(options); const response = await f.route.POST(f.request()); assert.ok([429, 503].includes(response.status)); assert.equal(f.ai.length, 0); assert.equal(f.queries.filter(q => q.op === "insert").length, 0); assert.equal(f.rpcs.filter(r => r.name === "billing_security_release_ai_usage").length, 0);
+    const f = fixture(options); const response = await f.route.POST(f.request()); assert.ok([429, 503].includes(response.status)); assert.equal(f.ai.length, 0); assert.equal(f.queries.filter(q => q.op === "insert").length, 0); assert.equal(f.rpcs.filter(r => r.name === "billing_security_release_ai_operation").length, 0);
   }
 });
 test("every failure after reservation rolls back exactly that reservation", async () => {
@@ -172,7 +173,7 @@ test("every failure after reservation rolls back exactly that reservation", asyn
     { fail: "conversations:insert", newConversation: true }, { fail: "messages:insert" }, { aiThrows: true }, { emptyReply: true },
   ]) {
     const f = fixture(options); assert.equal((await f.route.POST(f.request())).status, 500);
-    const releases = f.rpcs.filter(r => r.name === "billing_security_release_ai_usage"); assert.equal(releases.length, 1);
+    const releases = f.rpcs.filter(r => r.name === "billing_security_release_ai_operation"); assert.equal(releases.length, 1);
     assert.equal(releases[0].args.p_user_id, owner); assert.equal(releases[0].args.p_reservation_id, reservation);
     assert.ok(!JSON.stringify(f.logs).includes("PRIVATE_ERROR_DETAILS"));
   }
@@ -183,7 +184,8 @@ test("success uses only the resolved account and bounded provider options, witho
   assert.equal(response.headers.get("access-control-allow-origin"), "https://customer.example");
   for (const table of ["business_profiles", "knowledge_sources", "conversations"]) assert.ok(f.queries.filter(q => q.table === table && q.op === "select").every(q => q.filters.some(([k,v]) => k === "user_id" && v === owner)));
   assert.ok(f.queries.filter(q => q.table === "messages").every(q => q.op === "select" ? q.filters.some(([k,v]) => k === "conversation_id" && v === conversation) : q.values.conversation_id === conversation));
-  assert.equal(f.rpcs.filter(r => r.name === "billing_security_release_ai_usage").length, 0);
+  assert.equal(f.rpcs.filter(r => r.name === "billing_security_release_ai_operation").length, 0);
+  assert.equal(f.rpcs.filter(r => r.name === "billing_security_settle_ai_operation").length, 1);
   assert.equal(f.ai[0].store, false); assert.equal(f.ai[0].max_output_tokens, 2_000); assert.equal(f.clientOptions.maxRetries, 0); assert.equal(f.clientOptions.timeout, 45_000);
   assert.equal(f.clientOptions.baseURL, undefined);
   const telemetry = f.logs.find(([level, label]) => level === "info" && label === "OpenAI telemetry:")?.[2];
@@ -200,6 +202,12 @@ test("production cannot redirect OpenAI traffic through the local E2E base URL",
   const f = fixture({ environment: { NODE_ENV: "production", AGENTDESK_LOCAL_OPENAI_BASE_URL: "https://attacker.example/v1" } });
   assert.equal((await f.route.POST(f.request())).status, 200);
   assert.equal(f.clientOptions.baseURL, undefined);
+});
+test("production-like local E2E requires an explicit flag and still accepts only loopback", async () => {
+  const local = fixture({ environment: { NODE_ENV: "production", AGENTDESK_LOCAL_E2E: "1", AGENTDESK_LOCAL_OPENAI_BASE_URL: "http://127.0.0.1:43123/v1" } });
+  assert.equal(local.clientOptions.baseURL, "http://127.0.0.1:43123/v1");
+  const rejected = fixture({ environment: { NODE_ENV: "production", AGENTDESK_LOCAL_E2E: "1", AGENTDESK_LOCAL_OPENAI_BASE_URL: "http://192.168.1.10:43123/v1" } });
+  assert.equal(rejected.clientOptions.baseURL, undefined);
 });
 test("development E2E accepts only an HTTP loopback OpenAI endpoint", async () => {
   const local = fixture({ environment: { NODE_ENV: "development", AGENTDESK_LOCAL_OPENAI_BASE_URL: "http://127.0.0.1:43123/v1" } });
@@ -221,7 +229,7 @@ test("incomplete and failed provider responses emit safe telemetry and refund qu
     assert.equal(telemetry.incompleteReason, expectedReason);
     assert.equal(telemetry.errorClassification, expectedClassification);
     assert.equal(JSON.stringify(telemetry).includes("PRIVATE_ERROR_DETAILS"), false);
-    assert.equal(f.rpcs.filter(r => r.name === "billing_security_release_ai_usage").length, 1);
+    assert.equal(f.rpcs.filter(r => r.name === "billing_security_release_ai_operation").length, 1);
   }
 });
 test("provider exceptions emit classified telemetry without leaking messages", async () => {

@@ -64,8 +64,9 @@ test("subscription ownership and cross-account RLS are read-only for customers",
 test("usage quota and expiration are enforced before the atomic reservation", () => {
   assert.match(migration, /current_period_end <= now\(\)[\s\S]*monthly_limit=100[\s\S]*security_reserve_ai_usage\(p_user_id\)/i);
   const chat = fs.readFileSync(path.join(root, "app/api/chat/route.ts"), "utf8");
-  assert.match(chat, /billing_security_reserve_ai_usage/);
-  assert.match(chat, /billing_security_release_ai_usage/);
+  assert.match(chat, /billing_security_reserve_ai_operation/);
+  assert.match(chat, /billing_security_settle_ai_operation/);
+  assert.match(chat, /billing_security_release_ai_operation/);
 });
 
 test("verified billing events are idempotent and cannot accept a browser user id", () => {

@@ -27,6 +27,14 @@ test("auth redirects accept only local non-auth destinations", () => {
   }
 });
 
+test("only the exact password-reset route is additionally allowed for verified callbacks", () => {
+  const { safeAuthCallbackDestination } = securityHelpers();
+  assert.equal(safeAuthCallbackDestination("/reset-password"), "/reset-password");
+  for (const value of ["/reset-password?next=https://evil.example", "/reset-password#token", "//evil.example/reset-password", "https://evil.example/reset-password"]) {
+    assert.equal(safeAuthCallbackDestination(value), "/dashboard");
+  }
+});
+
 test("password policy is bounded and requires letters and numbers", () => {
   const { isStrongPassword } = securityHelpers();
   assert.equal(isStrongPassword("correcthorse7"), true);
@@ -49,23 +57,23 @@ test("login and registration prevent duplicate submissions and expose accessible
   assert.doesNotMatch(register, /emailRedirectTo: `\$\{window\.location\.origin\}\/login/);
 });
 
-test("recovery OTP flow is enumeration-safe and reset requires signed recovery claims", () => {
+test("recovery link flow is enumeration-safe and reset requires signed callback authorization", () => {
   const forgot = source("app/forgot-password/page.tsx");
-  const verify = source("app/verify-reset-code/page.tsx");
   const reset = source("app/reset-password/page.tsx");
+  const callback = source("app/auth/callback/page.tsx");
   assert.match(forgot, /resetPasswordForEmail/);
   assert.match(forgot, /If an account exists/);
-  assert.match(forgot, /router\.push\("\/verify-reset-code"\)/);
+  assert.match(forgot, /redirectTo/);
+  assert.match(forgot, /\/auth\/callback/);
   assert.match(forgot, /startRecoveryCooldown/);
   assert.match(source("lib/recovery-flow.ts"), /60_000/);
-  assert.match(verify, /verifyOtp\(\{ email, token, type: "recovery" \}\)/);
-  assert.match(verify, /\^\\d\{6\}\$/);
-  assert.match(verify, /Resend Code/);
+  assert.match(callback, /replaceState\(\{\}, "", "\/auth\/callback"\)/);
+  assert.match(callback, /RECOVERY_SESSION_KEY/);
   assert.match(reset, /recoveryState !== "ready"/);
   assert.match(reset, /getClaims\(\)/);
   assert.match(reset, /hasRecoveryAuthorization/);
   assert.match(reset, /updateUser\(\{ password \}\)/);
-  assert.match(reset, /signOut\(\{ scope: "local" \}\)/);
+  assert.match(reset, /signOut\(\{ scope: "global" \}\)/);
   assert.match(forgot, /if \(recoveryError\)/);
 });
 

@@ -59,8 +59,11 @@ exception when others then
   return new;
 end $function$;
 
-drop trigger if exists capture_initial_marketing_consent on auth.users;
-create trigger capture_initial_marketing_consent
+-- PostgreSQL 17 permits CREATE OR REPLACE TRIGGER with the table-level
+-- TRIGGER privilege. Avoid a separate removal statement because removing a
+-- trigger requires ownership of auth.users, which the managed production
+-- role does not have.
+create or replace trigger capture_initial_marketing_consent
   after insert on auth.users
   for each row execute function public.capture_initial_marketing_consent();
 

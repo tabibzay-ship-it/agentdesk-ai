@@ -9,6 +9,11 @@ const runtimeRoot = process.env.AGENTDESK_PGLITE_ROOT;
 const skip = !runtimeRoot && "Temporary PostgreSQL test runtime is not configured";
 const migration = fs.readFileSync(path.resolve(__dirname, "../supabase/migrations/20261013000000_marketing_consent.sql"), "utf8");
 
+test("marketing trigger is idempotent without owner-only DROP TRIGGER", () => {
+  assert.match(migration, /create\s+or\s+replace\s+trigger\s+capture_initial_marketing_consent/i);
+  assert.doesNotMatch(migration, /drop\s+trigger/i);
+});
+
 async function database() {
   const dependencies = createRequire(path.join(runtimeRoot, "package.json"));
   const { PGlite } = dependencies("@electric-sql/pglite");

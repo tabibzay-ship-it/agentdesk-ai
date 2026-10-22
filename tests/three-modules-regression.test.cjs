@@ -59,7 +59,7 @@ test("agent configuration saves identity, behavior and widget welcome data for t
 
 test("chat API preserves origin, quota, ownership and rollback protections", () => {
   const api = source("app/api/chat/route.ts");
-  for (const signal of ["isRequestOriginAllowed", "billing_security_reserve_ai_usage", "billing_security_release_ai_usage", "allowed_domains", "public_agent_id", ".eq(\"user_id\", agentId)"]) {
+  for (const signal of ["isRequestOriginAllowed", "billing_security_reserve_ai_operation", "billing_security_settle_ai_operation", "billing_security_release_ai_operation", "allowed_domains", "public_agent_id", ".eq(\"user_id\", agentId)"]) {
     assert.ok(api.includes(signal), `missing ${signal}`);
   }
 });

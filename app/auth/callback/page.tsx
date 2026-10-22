@@ -3,7 +3,8 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { safeAuthDestination } from "@/lib/client-security";
+import { safeAuthCallbackDestination } from "@/lib/client-security";
+import { RECOVERY_SESSION_KEY } from "@/lib/recovery-flow";
 import { supabase } from "@/lib/supabase";
 
 export default function AuthCallbackPage() {
@@ -13,11 +14,14 @@ export default function AuthCallbackPage() {
     let active = true;
     async function finish() {
       const url = new URL(window.location.href);
-      const next = safeAuthDestination(url.searchParams.get("next"));
+      const next = safeAuthCallbackDestination(url.searchParams.get("next"));
       const code = url.searchParams.get("code");
       const fragment = new URLSearchParams(url.hash.slice(1));
       const accessToken = fragment.get("access_token");
       const refreshToken = fragment.get("refresh_token");
+      // Remove one-time credentials before any asynchronous work, error UI,
+      // analytics or browser extensions can retain the callback URL.
+      window.history.replaceState({}, "", "/auth/callback");
       // Callback credentials identify the session the user is actively completing.
       // Only reuse an existing session when this is not an authentication callback.
       const result = code
@@ -30,7 +34,9 @@ export default function AuthCallbackPage() {
         setError("The sign-in response is invalid or expired. Please try again.");
         return;
       }
-      window.history.replaceState({}, "", "/auth/callback");
+      if (next === "/reset-password" && (code || (accessToken && refreshToken))) {
+        sessionStorage.setItem(RECOVERY_SESSION_KEY, "verified");
+      }
       router.replace(next);
     }
     void finish();
