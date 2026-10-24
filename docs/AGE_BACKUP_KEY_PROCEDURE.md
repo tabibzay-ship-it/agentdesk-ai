@@ -25,10 +25,11 @@ Before a production backup, encrypt synthetic content to both recipients. Test e
 
 ## Backup handling
 
-- A valid set contains `roles.sql.age`, `schema.sql.age`, `data.sql.age`, `metadata.json`, `SHA256SUMS.txt`, and `BACKUP_COMPLETE`.
-- Any set containing `BACKUP_INCOMPLETE`, lacking `BACKUP_COMPLETE`, or lacking three metadata artifacts is quarantined and must not be copied or restored.
+- A valid v2 set contains the six required encrypted database artifacts, encrypted Storage objects, `manifest.json`, `SHA256SUMS.txt`, and `BACKUP_COMPLETE`.
+- The database artifacts are roles, application schema, application data, migration-history schema/data, and reviewed managed `auth`/`storage` customizations.
+- Any set containing `BACKUP_INCOMPLETE`, lacking `BACKUP_COMPLETE`, or failing strict manifest, artifact, Storage inventory, size, or hash validation is quarantined and must not be copied or restored.
 - Partial encrypted files remain sensitive. Retain them only for diagnosis until separately approved cleanup; never attempt to repair them into a valid set.
-- Verify the primary D: set before copying it to F:, and verify the F: copy again.
+- Verify the primary set before copying it to a separately approved, healthy physical/off-site destination, and verify the independent copy again. Drive letters do not prove physical independence. Never use damaged or unreliable media.
 
 ## Recovery exercise
 

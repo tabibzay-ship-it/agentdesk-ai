@@ -12,12 +12,10 @@ if (-not (Test-Path -LiteralPath (Join-Path $BackupDirectory 'BACKUP_COMPLETE') 
     throw 'Backup completion marker is missing.'
 }
 Test-EncryptedChecksums $BackupDirectory
-$metadata = Get-Content -Raw -LiteralPath (Join-Path $BackupDirectory 'metadata.json') | ConvertFrom-Json
-if ($metadata.status -ne 'complete' -or @($metadata.artifacts).Count -ne 3) {
-    throw 'Backup metadata does not describe one complete three-artifact set.'
-}
+$metadata = Test-BackupManifest $BackupDirectory -RequireCompleteMarker
 foreach ($artifact in $metadata.artifacts) {
     $actual = Get-DecryptedSha256 $AgePath $IdentityPath (Join-Path $BackupDirectory $artifact.name)
     if ($actual -ne $artifact.plaintext_sha256) { throw "Decrypted hash mismatch: $($artifact.name)" }
 }
+'Storage ciphertext and object inventory verification passed. Plaintext object hashes are verified during restore.'
 'Checksum and streaming decryption verification passed; no plaintext files were created.'

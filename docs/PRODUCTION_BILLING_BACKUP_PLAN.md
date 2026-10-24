@@ -51,13 +51,20 @@ destination, retention, encryption, and operators.
    supabase db dump --db-url "$PROD_DB_URL" -f data.sql --use-copy --data-only -x "storage.buckets_vectors" -x "storage.vector_indexes"
    ```
 
-5. Stream each dump directly to age with two distinct public recipients; never
+5. Separately capture the migration-history schema/data and reviewed custom
+   triggers, policies, and functions on Supabase-managed `auth`/`storage`
+   schemas. A standard schema dump must not be represented as covering these.
+6. Enumerate every Storage bucket and object with pagination, stream each
+   object into encryption, preserve bucket/path/size/metadata, and record both
+   plaintext-stream and ciphertext SHA-256 hashes. Re-enumerate before marking
+   the inventory stable.
+7. Stream each dump directly to age with two distinct public recipients; never
    create plaintext production SQL. Record SHA-256 checksums of ciphertext.
    A set is usable only when `BACKUP_COMPLETE` exists, `BACKUP_INCOMPLETE` does
    not exist, metadata status is `complete`, and all three encrypted artifacts
    pass checksum and decryption-stream verification. Quarantine every other
    set; never resume or overwrite it.
-6. Inspect only dump headers and schema metadata for target identity and errors;
+8. Inspect only dump headers and schema metadata for target identity and errors;
    do not print data contents. Require non-empty artifacts and successful exit
    codes before proceeding.
 
@@ -153,13 +160,13 @@ independently against synthetic ciphertext, verify the decrypted stream hash,
 and document the custodians. Loss of every identity makes the backup
 irrecoverable; disclosure of any identity exposes every backup encrypted to it.
 
-Both candidate volumes were confirmed on 2026-10-16 to have no BitLocker
-encryption: D: is fixed NTFS with about 64.82 GiB free; F: is removable NTFS
-with about 27.97 GiB free. They are therefore ciphertext storage only, not key
-storage. Candidate directories are `D:\AgentDesk-Production-Backups` and
-`F:\AgentDesk-Production-Backups`; each must be created explicitly during an
-approved window and a new UTC-named child must be used so nothing is
-overwritten.
+Historical drive-letter observations are not current destination approval.
+`F:` is unreliable and must not be used. Neither `C:`/`D:` drive letters nor
+two folders prove independent physical storage. A future operation must verify
+physical device identity and health, choose one primary encrypted destination
+and one different healthy physical/off-site destination, and create a new UTC
+child without overwriting anything. Recovery identities must not be stored on
+either backup destination.
 
 Production execution remains blocked until the owner approves all of the
 following: the exact primary and second-copy destinations, two age recipients
