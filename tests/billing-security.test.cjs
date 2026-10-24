@@ -26,6 +26,7 @@ function compile(file, imports) {
 const config = compile("lib/billing-config.ts", {});
 const requestSecurity = compile("lib/request-security.ts", {});
 const disabledPayments = compile("lib/payments/provider.ts", {});
+const paymentTypes = compile("lib/payments/types.ts", {});
 const json = (data, status = 200) => Response.json(data, { status, headers: { "Cache-Control": "private, no-store" } });
 
 test("plan catalog has the approved configurable prices and limits", () => {
@@ -34,6 +35,15 @@ test("plan catalog has the approved configurable prices and limits", () => {
     starter: { code: "starter", name: "Starter", priceCents: 900, agentLimit: 3, monthlyResponseLimit: 2000, description: "For small teams ready to support more customers." },
     pro: { code: "pro", name: "Pro", priceCents: 2900, agentLimit: 10, monthlyResponseLimit: 10000, description: "For growing support operations." },
   });
+});
+
+test("payment redirects require an exact provider-approved HTTPS origin", () => {
+  const provider = { approvedRedirectOrigins: ["https://pay.example.com"] };
+  assert.equal(disabledPayments.isApprovedPaymentRedirect(provider, "https://pay.example.com/setup?id=1"), true);
+  assert.equal(disabledPayments.isApprovedPaymentRedirect(provider, "https://pay.example.com.evil.test/setup"), false);
+  assert.equal(disabledPayments.isApprovedPaymentRedirect(provider, "http://pay.example.com/setup"), false);
+  assert.equal(disabledPayments.isApprovedPaymentRedirect(provider, "https://user:pass@pay.example.com/setup"), false);
+  assert.equal(disabledPayments.isApprovedPaymentRedirect(provider, "not a URL"), false);
 });
 
 test("migration creates free subscriptions without overwriting existing accounts", () => {
@@ -54,8 +64,9 @@ test("subscription ownership and cross-account RLS are read-only for customers",
 test("usage quota and expiration are enforced before the atomic reservation", () => {
   assert.match(migration, /current_period_end <= now\(\)[\s\S]*monthly_limit=100[\s\S]*security_reserve_ai_usage\(p_user_id\)/i);
   const chat = fs.readFileSync(path.join(root, "app/api/chat/route.ts"), "utf8");
-  assert.match(chat, /billing_security_reserve_ai_usage/);
-  assert.match(chat, /security_release_ai_usage/);
+  assert.match(chat, /billing_security_reserve_ai_operation/);
+  assert.match(chat, /billing_security_settle_ai_operation/);
+  assert.match(chat, /billing_security_release_ai_operation/);
 });
 
 test("verified billing events are idempotent and cannot accept a browser user id", () => {
@@ -82,7 +93,7 @@ test("paid checkout rejects unauthenticated and self-assigned plans", async () =
   assert.equal(unauthenticated.status, 401);
   const free = await checkout.POST(new Request("https://example.com/api/billing/checkout", { method: "POST", headers: { authorization: "Bearer token", "content-type": "application/json" }, body: JSON.stringify({ planCode: "free", priceCents: 0, userId: "account-b" }) }));
   assert.equal(free.status, 400);
-  const paid = await checkout.POST(new Request("https://example.com/api/billing/checkout", { method: "POST", headers: { authorization: "Bearer token", "content-type": "application/json" }, body: JSON.stringify({ planCode: "pro", priceCents: 0, userId: "account-b" }) }));
+  const paid = await checkout.POST(new Request("https://example.com/api/billing/checkout", { method: "POST", headers: { authorization: "Bearer token", "content-type": "application/json" }, body: JSON.stringify({ planCode: "pro", autoRenew: true, priceCents: 0, userId: "account-b" }) }));
   assert.equal(paid.status, 503);
   assert.equal((await paid.json()).code, "PAYMENT_PROVIDER_UNAVAILABLE");
 });
@@ -91,6 +102,7 @@ test("missing provider and invalid webhook signatures fail before reconciliation
   const unavailableWebhook = compile("app/api/billing/webhook/route.ts", {
     "@/lib/billing-server": { billingJson: json, createBillingAdminClient() { throw new Error("must not run"); } },
     "@/lib/payments/provider": disabledPayments,
+    "@/lib/payments/types": paymentTypes,
   });
   assert.equal((await unavailableWebhook.POST(new Request("https://example.com/api/billing/webhook", { method: "POST", body: "{}" }))).status, 503);
 
@@ -98,10 +110,72 @@ test("missing provider and invalid webhook signatures fail before reconciliation
   const invalidWebhook = compile("app/api/billing/webhook/route.ts", {
     "@/lib/billing-server": { billingJson: json, createBillingAdminClient() { reconciled = true; return {}; } },
     "@/lib/payments/provider": { PaymentProviderUnavailableError: disabledPayments.PaymentProviderUnavailableError, getPaymentProvider() { return { configured: true, async verifyWebhook() { throw new Error("invalid signature"); } }; } },
+    "@/lib/payments/types": paymentTypes,
   });
   const response = await invalidWebhook.POST(new Request("https://example.com/api/billing/webhook", { method: "POST", body: "{}" }));
   assert.equal(response.status, 400);
   assert.equal(reconciled, false);
+});
+
+test("verified provider output is runtime validated before database reconciliation", async () => {
+  const validEvent = {
+    kind: "subscription",
+    provider: "synthetic",
+    eventId: "evt_123",
+    eventType: "subscription.updated",
+    customerReference: "customer_123",
+    subscriptionReference: "subscription_123",
+    planCode: "pro",
+    status: "active",
+    cancelAtPeriodEnd: false,
+    occurredAt: "2026-10-13T12:00:00.000Z",
+  };
+  for (const invalid of [
+    { ...validEvent, planCode: "enterprise" },
+    { ...validEvent, status: "refunded" },
+    { ...validEvent, eventId: "" },
+    { ...validEvent, customerReference: "x".repeat(256) },
+    { ...validEvent, occurredAt: "not-a-date" },
+  ]) {
+    let reconciled = false;
+    const route = compile("app/api/billing/webhook/route.ts", {
+      "@/lib/billing-server": { billingJson: json, createBillingAdminClient() { reconciled = true; return {}; } },
+      "@/lib/payments/provider": { PaymentProviderUnavailableError: disabledPayments.PaymentProviderUnavailableError, getPaymentProvider() { return { configured: true, async verifyWebhook() { return invalid; } }; } },
+      "@/lib/payments/types": paymentTypes,
+    });
+    const response = await route.POST(new Request("https://example.com/api/billing/webhook", { method: "POST", body: "{}" }));
+    assert.equal(response.status, 400);
+    assert.equal((await response.json()).code, "INVALID_WEBHOOK_EVENT");
+    assert.equal(reconciled, false);
+  }
+});
+
+test("a valid synthetic event reconciles once and reports database duplicate state", async () => {
+  const event = {
+    kind: "subscription", provider: "synthetic", eventId: "evt_123", eventType: "subscription.updated",
+    customerReference: "customer_123", subscriptionReference: "subscription_123",
+    transactionReference: "transaction_123", planCode: "starter", status: "active", cancelAtPeriodEnd: false,
+    occurredAt: "2026-10-13T12:00:00.000Z",
+  };
+  let calls = 0;
+  const route = compile("app/api/billing/webhook/route.ts", {
+    "@/lib/billing-server": {
+      billingJson: json,
+      createBillingAdminClient() { return { async rpc(name, values) {
+        calls += 1;
+        assert.equal(name, "billing_process_verified_event_v2");
+        assert.equal(values.p_event_id, event.eventId);
+        return { data: { duplicate: calls > 1 }, error: null };
+      } }; },
+    },
+    "@/lib/payments/provider": { PaymentProviderUnavailableError: disabledPayments.PaymentProviderUnavailableError, getPaymentProvider() { return { configured: true, async verifyWebhook() { return event; } }; } },
+    "@/lib/payments/types": paymentTypes,
+  });
+  const first = await route.POST(new Request("https://example.com/api/billing/webhook", { method: "POST", body: "{}" }));
+  const duplicate = await route.POST(new Request("https://example.com/api/billing/webhook", { method: "POST", body: "{}" }));
+  assert.deepEqual(await first.json(), { received: true, duplicate: false });
+  assert.deepEqual(await duplicate.json(), { received: true, duplicate: true });
+  assert.equal(calls, 2);
 });
 
 test("cancellation derives ownership from the verified session and awaits provider reconciliation", () => {

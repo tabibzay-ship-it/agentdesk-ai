@@ -7,11 +7,12 @@ function supabaseConnectionSources(): string[] {
   if (!value) return [];
 
   const url = new URL(value);
+  const isLoopback = url.hostname === "127.0.0.1" || url.hostname === "localhost" || url.hostname === "[::1]";
   // A deployment variable must not become additional CSP directives. Credentials,
   // paths and non-HTTP endpoints are not valid Supabase project base URLs.
   if (
     !["http:", "https:"].includes(url.protocol) ||
-    (isProduction && url.protocol !== "https:") ||
+    (isProduction && url.protocol !== "https:" && !isLoopback) ||
     url.username || url.password || url.search || url.hash ||
     (url.pathname !== "/" && url.pathname !== "") ||
     !/^https?:\/\/[a-z0-9.:[\]-]+$/i.test(url.origin)

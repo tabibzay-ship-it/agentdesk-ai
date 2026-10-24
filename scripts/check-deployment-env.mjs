@@ -3,6 +3,8 @@ import nextEnv from "@next/env";
 const { loadEnvConfig } = nextEnv;
 loadEnvConfig(process.cwd());
 
+const productionSupabaseOrigin = "https://cdynahtkwtcinjzmxjcs.supabase.co";
+
 const required = [
   "NEXT_PUBLIC_SUPABASE_URL",
   "NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY",
@@ -43,6 +45,14 @@ for (const [name, value] of [
 
 if (process.env.CONTEXT === "production" && new URL(applicationOrigin).hostname !== "getagentdeskai.com") {
   console.error("Production AGENTDESK_APP_ORIGIN must remain https://getagentdeskai.com.");
+  process.exit(1);
+}
+
+if (
+  process.env.CONTEXT === "production" &&
+  new URL(process.env.NEXT_PUBLIC_SUPABASE_URL).origin !== productionSupabaseOrigin
+) {
+  console.error("Production NEXT_PUBLIC_SUPABASE_URL must use the approved AgentDesk AI Supabase project.");
   process.exit(1);
 }
 

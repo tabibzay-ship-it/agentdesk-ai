@@ -15,8 +15,12 @@ export async function GET(request: Request) {
     if (ensureError) {
       return billingJson({ error: "Billing data is not available yet.", code: "BILLING_MIGRATION_REQUIRED" }, 503);
     }
+    const { error: trialEnsureError } = await admin.rpc("billing_ensure_trial_entitlement", { p_user_id: user.id });
+    if (trialEnsureError) {
+      return billingJson({ error: "Trial billing data is not available yet.", code: "TRIAL_MIGRATION_REQUIRED" }, 503);
+    }
 
-    const [plansResult, subscriptionResult, usageResult, eventsResult, transactionsResult] = await Promise.all([
+    const [plansResult, subscriptionResult, usageResult, trialResult, methodsResult, eventsResult, transactionsResult] = await Promise.all([
       admin.from("subscription_plans")
         .select("code,name,price_cents,agent_limit,monthly_response_limit,description")
         .eq("active", true).order("display_order", { ascending: true }),
@@ -25,13 +29,17 @@ export async function GET(request: Request) {
         .eq("user_id", user.id).maybeSingle(),
       admin.from("usage_limits").select("plan,monthly_limit,messages_used,period_start")
         .eq("user_id", user.id).maybeSingle(),
+      admin.from("trial_entitlements").select("status,starts_at,ends_at,credit_limit,credits_used,ended_at")
+        .eq("user_id", user.id).maybeSingle(),
+      admin.from("payment_methods").select("id,brand,last4,exp_month,exp_year,is_default,status")
+        .eq("user_id", user.id).eq("status", "active").order("created_at", { ascending: false }),
       admin.from("billing_events").select("id,event_type,outcome,occurred_at,processed_at,created_at")
         .eq("user_id", user.id).order("created_at", { ascending: false }).limit(25),
       admin.from("payment_transactions").select("id,amount_cents,currency,status,occurred_at,created_at")
         .eq("user_id", user.id).order("created_at", { ascending: false }).limit(25),
     ]);
 
-    if (plansResult.error || subscriptionResult.error || usageResult.error || eventsResult.error || transactionsResult.error) {
+    if (plansResult.error || subscriptionResult.error || usageResult.error || trialResult.error || methodsResult.error || eventsResult.error || transactionsResult.error) {
       return billingJson({ error: "Could not load billing information.", code: "BILLING_READ_FAILED" }, 500);
     }
 
@@ -46,6 +54,8 @@ export async function GET(request: Request) {
       })),
       subscription: subscriptionResult.data,
       usage: usageResult.data,
+      trial: trialResult.data,
+      paymentMethods: methodsResult.data ?? [],
       billingEvents: eventsResult.data ?? [],
       transactions: transactionsResult.data ?? [],
       checkout: {

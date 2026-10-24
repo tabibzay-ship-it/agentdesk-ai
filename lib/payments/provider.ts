@@ -12,7 +12,10 @@ export class PaymentProviderUnavailableError extends Error {
 const disabledProvider: PaymentProvider = {
   name: "disabled",
   configured: false,
+  approvedRedirectOrigins: [],
   async createCheckout() { throw new PaymentProviderUnavailableError(); },
+  async createPaymentMethodSetup() { throw new PaymentProviderUnavailableError(); },
+  async removePaymentMethod() { throw new PaymentProviderUnavailableError(); },
   async cancelSubscription() { throw new PaymentProviderUnavailableError(); },
   async verifyWebhook() { throw new PaymentProviderUnavailableError(); },
 };
@@ -21,4 +24,18 @@ const disabledProvider: PaymentProvider = {
 // webhooks, and server-side reconciliation are approved and configured.
 export function getPaymentProvider(): PaymentProvider {
   return disabledProvider;
+}
+
+export function isApprovedPaymentRedirect(provider: PaymentProvider, value: string): boolean {
+  try {
+    const url = new URL(value);
+    return (
+      url.protocol === "https:" &&
+      !url.username &&
+      !url.password &&
+      provider.approvedRedirectOrigins.includes(url.origin)
+    );
+  } catch {
+    return false;
+  }
 }

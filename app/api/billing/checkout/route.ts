@@ -1,6 +1,6 @@
 import { isBillingPlanCode, isPaidPlan } from "@/lib/billing-config";
 import { authenticateBillingRequest, billingJson } from "@/lib/billing-server";
-import { getPaymentProvider, PaymentProviderUnavailableError } from "@/lib/payments/provider";
+import { getPaymentProvider, isApprovedPaymentRedirect, PaymentProviderUnavailableError } from "@/lib/payments/provider";
 import { BodyError, readJsonObject } from "@/lib/request-security";
 
 export const runtime = "nodejs";
@@ -19,6 +19,9 @@ export async function POST(request: Request) {
 
     if (!isBillingPlanCode(body.planCode) || !isPaidPlan(body.planCode)) {
       return billingJson({ error: "Select a valid paid plan.", code: "INVALID_PLAN" }, 400);
+    }
+    if (body.autoRenew !== true) {
+      return billingJson({ error: "Monthly automatic renewal requires explicit consent.", code: "AUTO_RENEW_CONSENT_REQUIRED" }, 400);
     }
 
     const provider = getPaymentProvider();
@@ -42,7 +45,12 @@ export async function POST(request: Request) {
       userId: user.id,
       planCode: body.planCode,
       returnUrl,
+      autoRenew: true,
+      billingPeriod: "monthly",
     });
+    if (!isApprovedPaymentRedirect(provider, checkout.checkoutUrl)) {
+      return billingJson({ error: "Unsafe provider URL.", code: "UNSAFE_PROVIDER_URL" }, 502);
+    }
     const { error: saveError } = await admin.from("subscriptions").update({
       pending_plan_id: body.planCode,
       status: "incomplete",

@@ -1,5 +1,25 @@
 # AgentDesk AI final security review
 
+## Continuation recheck — 8 October 2026
+
+Overall **PENDING**, not a full security PASS. Fresh review uses the active Desktop project, baseline/local/GitHub main revision 0db97978416b32039ea66ceec47136d889d8e835; backup excluded. New application and regression-test fixes are local, uncommitted and not deployed.
+
+- Final automated suite: **102 passed, 0 failed, 0 skipped**, including 17 synthetic PostgreSQL tests. Seven unique regressions were added. Lint and whitespace checks pass; production build/TypeScript passed after the application fixes (18 pages). The final test harness binding was renamed after lint found a reserved module-name rule; the affected four tests were rerun and passed. Repeated executions are not counted as new tests.
+- Fresh production evidence: **77 assertions over 43 requests**, plus **12 domain assertions over 13 requests** across the two existing restricted agents. Headers/CSP/HTTPS, safe malformed-request rejection, credential-free CORS/no-store, exact production widget URL and seven anonymous REST denials passed. Domain checks allow configured/application origins and deny missing/unrelated/lookalike/subdomain origins. These are browser-origin restrictions, not non-browser caller authentication.
+- Private exact-value comparisons found zero matches for the two currently configured server secrets in 47 tracked source files and 13 fetched browser assets. No secret values are in evidence. This is not a complete Git-history, unknown-credential or all-chunk scan.
+- Fresh npm production audit reports zero known vulnerabilities. Full audit retains five high development-only findings representing the single braces advisory GHSA-vfj7-8cjw-p6xm. No compatible patched release is listed; no forced framework downgrade was applied.
+- Safe local fixes: Clear Chat removes the account/agent scoped capability and is guarded during a pending send; settings/dashboard logout show generic failure and navigate only on success while preserving global signout; widget settings require explicit boolean true for active status in both response paths.
+- Public Auth settings currently confirm email signup enabled and mailer autoconfirm disabled. Live signup, delivered/expired/reused confirmation links, two-account browser switching and current hosted password/session/account-change/CAPTCHA policies remain PENDING. Prior recorded server minimum six vs client eight, disabled current-password/secure-password-change/CAPTCHA and other management settings are historical observations, not fresh management verification. Direct Auth API account changes still require server enforcement despite no change-password UI. Revoked access JWTs can remain valid until expiry.
+- Brevo SMTP IP restriction is resolved according to the user; Brevo phone verification, SMTP key, authenticated sender domain, Supabase custom SMTP and live confirmation tests remain blockers. API-key IP restriction is disabled according to the user. No IP restriction, Auth/security/account setting, CAPTCHA provider, production secret or DB policy was changed.
+- Current live authenticated RLS/catalog, hosted Auth rate settings and multi-session load/locking were not rerun. Existing rollback SQL evidence below remains historical. Early DB reads before app rate buckets and unlimited widget-metadata reads retain resource-abuse exposure; positive public customer installation verification remains open.
+
+Read-only production probes made no signup/email/password/account mutations, AI requests, customer writes or production SQL changes. Default sandbox and browser automation failed setup; root's successful escalated local checks and direct HTTP evidence support this update. Hosted Brevo/Supabase/Netlify management dashboard settings and live deploy identity were not freshly inspected.
+
+Evidence deliverables are in the current Codex task outputs: AgentDesk-Final-Security-Review-PS.md, validation-summary.json, automated-test-results.txt, lint-results.txt, widget-settings-regression-results.txt, production-security-evidence.json, widget-domain-evidence.json, repository-evidence.json and safe-code-fixes.patch. The Pashto report gives exact remaining actions and approval boundaries. This continuation supersedes earlier current-state claims for the scopes above while preserving historical evidence below.
+
+---
+
+
 Reviewed 8 October 2026. Scope: the active Desktop `agentdesk-ai` project (not `agentdesk-ai-backup`).
 
 ## Outcome

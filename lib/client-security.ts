@@ -30,3 +30,30 @@ export function isHttpWebsite(value: string): boolean {
     return false;
   }
 }
+
+export function isStrongPassword(value: string): boolean {
+  return value.length >= 12 && value.length <= 1024 &&
+    /[A-Za-z]/.test(value) && /\d/.test(value) &&
+    !value.includes("\0");
+}
+
+export function safeAuthDestination(value: string | null | undefined): string {
+  if (!value || !value.startsWith("/") || value.startsWith("//")) return "/dashboard";
+  try {
+    const url = new URL(value, "https://agentdesk.invalid");
+    if (url.origin !== "https://agentdesk.invalid") return "/dashboard";
+    if (/^\/(login|register|forgot-password|verify-reset-code|reset-password)(\/|$)/.test(url.pathname)) {
+      return "/dashboard";
+    }
+    return `${url.pathname}${url.search}${url.hash}`;
+  } catch {
+    return "/dashboard";
+  }
+}
+
+export function safeAuthCallbackDestination(value: string | null | undefined): string {
+  // Password recovery is the sole authentication page that an incoming,
+  // verified callback may enter. It must be exact so callback input cannot
+  // smuggle a query, fragment or external destination into the reset flow.
+  return value === "/reset-password" ? value : safeAuthDestination(value);
+}
