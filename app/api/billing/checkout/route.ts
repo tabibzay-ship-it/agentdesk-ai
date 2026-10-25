@@ -33,10 +33,14 @@ export async function POST(request: Request) {
     const { error: ensureError } = await admin.rpc("billing_ensure_free_subscription", { p_user_id: user.id });
     if (ensureError) return billingJson({ error: "Billing data is not available yet.", code: "BILLING_MIGRATION_REQUIRED" }, 503);
     const { data: subscription, error: subscriptionError } = await admin.from("subscriptions")
-      .select("status,plan_id,pending_plan_id,provider_customer_ref,provider_subscription_ref")
+      .select("status,plan_id,pending_plan_id,provider,provider_customer_ref,provider_subscription_ref")
       .eq("user_id", user.id).maybeSingle();
     if (subscriptionError || !subscription) return billingJson({ error: "Could not load the subscription.", code: "BILLING_READ_FAILED" }, 500);
-    if (subscription.plan_id !== "free" || subscription.pending_plan_id || subscription.provider_customer_ref || subscription.provider_subscription_ref) {
+    const isNowPaymentsRenewal = provider.name === "nowpayments" && subscription.provider === "nowpayments" &&
+      subscription.status === "active" && subscription.plan_id === body.planCode && !subscription.pending_plan_id;
+    const isInitialCheckout = subscription.plan_id === "free" && !subscription.pending_plan_id &&
+      !subscription.provider_customer_ref && !subscription.provider_subscription_ref;
+    if (!isInitialCheckout && !isNowPaymentsRenewal) {
       return billingJson({ error: "A paid subscription or checkout is already associated with this account.", code: "DUPLICATE_SUBSCRIPTION" }, 409);
     }
 
@@ -47,10 +51,12 @@ export async function POST(request: Request) {
       returnUrl,
       autoRenew: true,
       billingPeriod: "monthly",
+      renewal: isNowPaymentsRenewal,
     });
     if (!isApprovedPaymentRedirect(provider, checkout.checkoutUrl)) {
       return billingJson({ error: "Unsafe provider URL.", code: "UNSAFE_PROVIDER_URL" }, 502);
     }
+    if (isNowPaymentsRenewal) return billingJson({ checkoutUrl: checkout.checkoutUrl, renewal: true });
     const { error: saveError } = await admin.from("subscriptions").update({
       pending_plan_id: body.planCode,
       status: "incomplete",

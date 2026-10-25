@@ -25,7 +25,9 @@ function compile(file, imports) {
 
 const config = compile("lib/billing-config.ts", {});
 const requestSecurity = compile("lib/request-security.ts", {});
-const disabledPayments = compile("lib/payments/provider.ts", {});
+const disabledPayments = compile("lib/payments/provider.ts", {
+  "./nowpayments": { createNowPaymentsProvider() { return { configured: false }; } },
+});
 const paymentTypes = compile("lib/payments/types.ts", {});
 const json = (data, status = 200) => Response.json(data, { status, headers: { "Cache-Control": "private, no-store" } });
 

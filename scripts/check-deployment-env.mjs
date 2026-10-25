@@ -20,6 +20,11 @@ const applicationOrigin =
 
 const missing = required.filter((name) => !process.env[name]?.trim());
 if (!applicationOrigin) missing.push("AGENTDESK_APP_ORIGIN");
+if (process.env.NOWPAYMENTS_ENABLED === "true") {
+  for (const name of ["NOWPAYMENTS_API_KEY", "NOWPAYMENTS_IPN_SECRET"]) {
+    if (!process.env[name]?.trim()) missing.push(name);
+  }
+}
 if (missing.length) {
   console.error(`Missing required deployment variables: ${missing.join(", ")}`);
   process.exit(1);
@@ -29,6 +34,23 @@ const publicKey = process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY;
 if (/service_role|sb_secret_/i.test(publicKey)) {
   console.error("NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY must never contain a secret or service-role key.");
   process.exit(1);
+}
+
+if (process.env.NOWPAYMENTS_ENABLED && !["true", "false"].includes(process.env.NOWPAYMENTS_ENABLED)) {
+  console.error("NOWPAYMENTS_ENABLED must be exactly true or false.");
+  process.exit(1);
+}
+
+if (process.env.NOWPAYMENTS_API_ORIGIN) {
+  const allowedNowPaymentsOrigins = ["https://api.nowpayments.io", "https://api.sandbox.nowpayments.io"];
+  if (!allowedNowPaymentsOrigins.includes(process.env.NOWPAYMENTS_API_ORIGIN)) {
+    console.error("NOWPAYMENTS_API_ORIGIN must use an approved NOWPayments production or sandbox API origin.");
+    process.exit(1);
+  }
+  if (process.env.CONTEXT === "production" && process.env.NOWPAYMENTS_API_ORIGIN !== "https://api.nowpayments.io") {
+    console.error("Production NOWPAYMENTS_API_ORIGIN must use the production NOWPayments API.");
+    process.exit(1);
+  }
 }
 
 for (const [name, value] of [

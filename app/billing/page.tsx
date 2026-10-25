@@ -14,7 +14,7 @@ type BillingData = {
   paymentMethods: Array<{ id: string; brand: string; last4: string; exp_month: number | null; exp_year: number | null; is_default: boolean }>;
   billingEvents: Array<{ id: string; event_type: string; outcome: string; occurred_at: string | null; created_at: string }>;
   transactions: Array<{ id: string; amount_cents: number; currency: string; status: string; occurred_at: string; created_at: string }>;
-  checkout: { available: boolean; message: string };
+  checkout: { available: boolean; provider: string | null; renewalMode: "customer_initiated" | "provider_managed"; paymentMethodsAvailable: boolean; cancellationAvailable: boolean; message: string };
 };
 
 const money = new Intl.NumberFormat("en-US", { style: "currency", currency: BILLING_CURRENCY, minimumFractionDigits: 0 });
@@ -81,7 +81,7 @@ export default function BillingPage() {
     if (pendingAction) return;
     setError(""); setNotice(""); setPendingAction(planCode);
     try {
-      if (!autoRenewConsent) throw new Error("Confirm monthly automatic renewal before continuing.");
+      if (!autoRenewConsent) throw new Error(data?.checkout.renewalMode === "customer_initiated" ? "Confirm the monthly crypto renewal terms before continuing." : "Confirm monthly automatic renewal before continuing.");
       const result = await authorizedPost("/api/billing/checkout", { planCode, autoRenew: true });
       const checkoutUrl = new URL(String(result.checkoutUrl));
       if (checkoutUrl.protocol !== "https:") throw new Error("The payment provider returned an unsafe checkout URL.");
@@ -180,35 +180,36 @@ export default function BillingPage() {
 
           <label className="mt-6 flex min-h-12 items-start gap-3 rounded-xl border border-[var(--premium-border)] bg-[var(--premium-surface)] p-4 text-sm">
             <input type="checkbox" checked={autoRenewConsent} onChange={(event) => setAutoRenewConsent(event.target.checked)} className="mt-0.5 h-5 w-5 accent-blue-600" />
-            <span><strong>Monthly automatic renewal</strong><br/><span className="text-[var(--premium-text-muted)]">I agree to monthly renewal at the displayed plan price until I cancel. Cancellation is requested for the end of the current billing period.</span></span>
+            <span><strong>{data.checkout.renewalMode === "customer_initiated" ? "Monthly crypto renewal" : "Monthly automatic renewal"}</strong><br/><span className="text-[var(--premium-text-muted)]">{data.checkout.renewalMode === "customer_initiated" ? "I understand each renewal requires a new confirmed crypto payment; AgentDesk will never charge a stored payment method automatically." : "I agree to monthly renewal at the displayed plan price until I cancel. Cancellation is requested for the end of the current billing period."}</span></span>
           </label>
 
           <section className="mt-10 grid gap-5 md:grid-cols-3">
             {data.plans.map((plan) => {
               const selected = plan.code === currentPlan;
+              const canRenew = selected && plan.priceCents > 0 && data.checkout.renewalMode === "customer_initiated";
               return <article key={plan.code} className={`rounded-2xl border p-6 ${selected ? "border-blue-500 bg-blue-500/10" : "border-slate-800 bg-slate-900"}`}>
                 <div className="flex items-center justify-between"><h2 className="text-xl font-bold">{plan.name}</h2>{selected && <span className="rounded-full bg-blue-600 px-2.5 py-1 text-xs">Current</span>}</div>
                 <p className="mt-4 text-3xl font-bold">{money.format(plan.priceCents / 100)}<span className="text-sm font-normal text-slate-400"> / month</span></p>
                 <p className="mt-3 min-h-10 text-sm text-slate-400">{plan.description}</p>
                 <ul className="mt-5 space-y-2 text-sm text-slate-300"><li>✓ {plan.agentLimit} AI {plan.agentLimit === 1 ? "Agent" : "Agents"}</li><li>✓ {plan.monthlyResponseLimit.toLocaleString()} AI responses / month</li></ul>
                 <button type="button" onClick={() => void startCheckout(plan.code)}
-                  disabled={selected || plan.priceCents === 0 || !data.checkout.available || !autoRenewConsent || pendingAction !== null}
+                  disabled={(selected && !canRenew) || plan.priceCents === 0 || !data.checkout.available || !autoRenewConsent || pendingAction !== null}
                   className="mt-6 min-h-12 w-full rounded-xl bg-blue-600 px-4 py-3 font-semibold text-white disabled:cursor-not-allowed disabled:bg-slate-800 disabled:text-slate-500">
-                  {pendingAction === plan.code ? "Opening secure checkout…" : selected ? "Current plan" : plan.priceCents === 0 ? "Free plan" : data.checkout.available ? `Choose ${plan.name}` : "Checkout unavailable"}
+                  {pendingAction === plan.code ? "Opening secure checkout…" : canRenew ? `Renew ${plan.name}` : selected ? "Current plan" : plan.priceCents === 0 ? "Free plan" : data.checkout.available ? `Choose ${plan.name}` : "Checkout unavailable"}
                 </button>
               </article>;
             })}
           </section>
 
           <section className="mt-10 rounded-2xl border border-slate-800 bg-slate-900 p-6">
-            <div className="flex flex-wrap items-center justify-between gap-3"><h2 className="text-xl font-semibold">Saved payment methods</h2><button type="button" onClick={() => void setupPaymentMethod()} disabled={!data.checkout.available || pendingAction !== null} className="min-h-11 rounded-lg border border-blue-500/40 px-4 py-2 text-sm text-blue-400 disabled:cursor-not-allowed disabled:border-slate-700 disabled:text-slate-600">{pendingAction === "add-method" ? "Opening provider…" : "Add payment method"}</button></div>
+            <div className="flex flex-wrap items-center justify-between gap-3"><h2 className="text-xl font-semibold">Saved payment methods</h2><button type="button" onClick={() => void setupPaymentMethod()} disabled={!data.checkout.paymentMethodsAvailable || pendingAction !== null} className="min-h-11 rounded-lg border border-blue-500/40 px-4 py-2 text-sm text-blue-400 disabled:cursor-not-allowed disabled:border-slate-700 disabled:text-slate-600">{pendingAction === "add-method" ? "Opening provider…" : "Add payment method"}</button></div>
             <p className="mt-1 text-sm text-slate-400">Cards are collected only on the provider&apos;s hosted page. AgentDesk stores token references and safe display metadata—never card numbers or CVV.</p>
             {data.paymentMethods.length === 0 ? <p className="mt-5 rounded-xl bg-slate-950 p-4 text-sm text-slate-500">No saved payment method. Add, replace, and remove controls become available only after an approved provider is configured.</p> :
-              <div className="mt-5 space-y-3">{data.paymentMethods.map((method) => <div key={method.id} className="flex flex-wrap items-center justify-between gap-3 rounded-xl bg-slate-950 p-4 text-sm"><div><span className="capitalize">{method.brand} •••• {method.last4}</span><span className="ms-3 text-slate-500">{method.exp_month && method.exp_year ? `Expires ${method.exp_month}/${method.exp_year}` : "Expiry managed by provider"}{method.is_default ? " · Default" : ""}</span></div><div className="flex gap-2"><button type="button" disabled={!data.checkout.available || pendingAction !== null} onClick={() => void setupPaymentMethod(method.id)} className="min-h-11 rounded-lg border border-slate-700 px-3 disabled:opacity-50">Replace</button><button type="button" disabled={!data.checkout.available || pendingAction !== null} onClick={() => void removePaymentMethod(method.id)} className="min-h-11 rounded-lg border border-red-500/40 px-3 text-red-400 disabled:opacity-50">Remove</button></div></div>)}</div>}
+              <div className="mt-5 space-y-3">{data.paymentMethods.map((method) => <div key={method.id} className="flex flex-wrap items-center justify-between gap-3 rounded-xl bg-slate-950 p-4 text-sm"><div><span className="capitalize">{method.brand} •••• {method.last4}</span><span className="ms-3 text-slate-500">{method.exp_month && method.exp_year ? `Expires ${method.exp_month}/${method.exp_year}` : "Expiry managed by provider"}{method.is_default ? " · Default" : ""}</span></div><div className="flex gap-2"><button type="button" disabled={!data.checkout.paymentMethodsAvailable || pendingAction !== null} onClick={() => void setupPaymentMethod(method.id)} className="min-h-11 rounded-lg border border-slate-700 px-3 disabled:opacity-50">Replace</button><button type="button" disabled={!data.checkout.paymentMethodsAvailable || pendingAction !== null} onClick={() => void removePaymentMethod(method.id)} className="min-h-11 rounded-lg border border-red-500/40 px-3 text-red-400 disabled:opacity-50">Remove</button></div></div>)}</div>}
           </section>
 
           <section className="mt-10 rounded-2xl border border-slate-800 bg-slate-900 p-6">
-            <div className="flex flex-wrap items-center justify-between gap-4"><div><h2 className="text-xl font-semibold">Billing history</h2><p className="mt-1 text-sm text-slate-400">Verified payment activity for this account only.</p></div><button type="button" onClick={() => void cancelSubscription()} disabled={!data.checkout.available || currentPlan === "free" || pendingAction !== null} className="min-h-11 rounded-lg border border-red-500/40 px-4 py-2 text-sm text-red-400 disabled:cursor-not-allowed disabled:border-slate-700 disabled:text-slate-600">{pendingAction === "cancel" ? "Requesting…" : "Cancel subscription"}</button></div>
+            <div className="flex flex-wrap items-center justify-between gap-4"><div><h2 className="text-xl font-semibold">Billing history</h2><p className="mt-1 text-sm text-slate-400">Verified payment activity for this account only.</p></div><button type="button" onClick={() => void cancelSubscription()} disabled={!data.checkout.cancellationAvailable || currentPlan === "free" || pendingAction !== null} className="min-h-11 rounded-lg border border-red-500/40 px-4 py-2 text-sm text-red-400 disabled:cursor-not-allowed disabled:border-slate-700 disabled:text-slate-600">{pendingAction === "cancel" ? "Requesting…" : "Cancel subscription"}</button></div>
             {data.transactions.length === 0 && data.billingEvents.length === 0 ? <p className="mt-6 rounded-xl bg-slate-950 p-5 text-sm text-slate-500">No billing activity yet.</p> : <div className="mt-6 space-y-3">{data.transactions.map((item) => <div key={item.id} className="flex justify-between rounded-xl bg-slate-950 p-4 text-sm"><span className="capitalize">{item.status}</span><span>{money.format(item.amount_cents / 100)} · {new Date(item.occurred_at || item.created_at).toLocaleDateString()}</span></div>)}</div>}
           </section>
         </>}

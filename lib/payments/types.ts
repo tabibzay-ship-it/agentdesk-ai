@@ -6,6 +6,7 @@ export type CheckoutRequest = {
   returnUrl: string;
   autoRenew: true;
   billingPeriod: "monthly";
+  renewal?: boolean;
 };
 
 export type PaymentMethodSetupRequest = { userId: string; returnUrl: string; replacePaymentMethodReference?: string };

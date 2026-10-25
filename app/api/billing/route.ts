@@ -43,6 +43,7 @@ export async function GET(request: Request) {
       return billingJson({ error: "Could not load billing information.", code: "BILLING_READ_FAILED" }, 500);
     }
 
+    const paymentProvider = getPaymentProvider();
     return billingJson({
       plans: (plansResult.data ?? []).map((plan) => ({
         code: plan.code,
@@ -59,8 +60,12 @@ export async function GET(request: Request) {
       billingEvents: eventsResult.data ?? [],
       transactions: transactionsResult.data ?? [],
       checkout: {
-        available: getPaymentProvider().configured,
-        message: "Paid checkout is not configured. Starter and Pro purchases remain disabled.",
+        available: paymentProvider.configured,
+        provider: paymentProvider.configured ? paymentProvider.name : null,
+        renewalMode: paymentProvider.name === "nowpayments" ? "customer_initiated" : "provider_managed",
+        paymentMethodsAvailable: paymentProvider.configured && paymentProvider.name !== "nowpayments",
+        cancellationAvailable: paymentProvider.configured && paymentProvider.name !== "nowpayments",
+        message: paymentProvider.configured ? "Secure checkout is available." : "Paid checkout is not configured. Starter and Pro purchases remain disabled.",
       },
     });
   } catch {

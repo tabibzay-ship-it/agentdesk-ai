@@ -1,6 +1,7 @@
 import "server-only";
 
 import type { PaymentProvider } from "./types";
+import { createNowPaymentsProvider } from "./nowpayments";
 
 export class PaymentProviderUnavailableError extends Error {
   constructor() {
@@ -23,6 +24,8 @@ const disabledProvider: PaymentProvider = {
 // Add a reviewed provider implementation here only after credentials, signed
 // webhooks, and server-side reconciliation are approved and configured.
 export function getPaymentProvider(): PaymentProvider {
+  const nowPayments = createNowPaymentsProvider();
+  if (nowPayments.configured) return nowPayments;
   return disabledProvider;
 }
 
