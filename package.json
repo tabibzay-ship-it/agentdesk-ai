@@ -12,6 +12,7 @@
     "lint": "eslint",
     "typecheck": "next typegen && tsc --noEmit",
     "test": "node --test --test-concurrency=1 tests/*.test.cjs && tsx --test --test-concurrency=1 tests/*.test.ts",
+    "test:nowpayments:synthetic": "node scripts/payments/test-nowpayments-synthetic.mjs",
     "security": "npm run security:scan",
     "security:scan": "node scripts/deployment-security-scan.mjs",
     "env:check": "node scripts/check-deployment-env.mjs",

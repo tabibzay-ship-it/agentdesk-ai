@@ -2,6 +2,7 @@
 const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const path = require("node:path");
+const { spawnSync } = require("node:child_process");
 const { test } = require("node:test");
 
 const root = path.resolve(__dirname, "..");
@@ -62,6 +63,77 @@ test("production deployment validation pins the canonical site and Supabase proj
   assert.match(validator, /getagentdeskai\.com/);
   assert.match(validator, /https:\/\/cdynahtkwtcinjzmxjcs\.supabase\.co/);
   assert.match(validator, /NEXT_PUBLIC_SUPABASE_URL must use the approved AgentDesk AI Supabase project/);
+  assert.match(validator, /Deploy Preview must never use the production AgentDesk AI Supabase project/);
+  assert.match(validator, /Deploy Preview NOWPAYMENTS_API_ORIGIN must use the NOWPayments sandbox API/);
+});
+
+test("deploy-preview validation rejects production Supabase and production NOWPayments origins", () => {
+  const validate = (overrides) => spawnSync(process.execPath, ["scripts/check-deployment-env.mjs"], {
+    cwd: root,
+    encoding: "utf8",
+    env: {
+      ...process.env,
+      CONTEXT: "deploy-preview",
+      DEPLOY_PRIME_URL: "https://deploy-preview-2--agentdesk.example",
+      AGENTDESK_APP_ORIGIN: "https://deploy-preview-2--agentdesk.example",
+      NEXT_PUBLIC_SUPABASE_URL: "https://koqlnjctqeaykhbqkyuj.supabase.co",
+      NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: "synthetic-public-key",
+      SUPABASE_SERVICE_ROLE_KEY: "synthetic-service-role-key",
+      OPENAI_API_KEY: "synthetic-disabled-provider-key",
+      NOWPAYMENTS_ENABLED: "false",
+      NOWPAYMENTS_API_ORIGIN: "https://api.sandbox.nowpayments.io",
+      AGENTDESK_EXPECTED_SUPABASE_PROJECT_REF: "koqlnjctqeaykhbqkyuj",
+      AGENTDESK_VERIFY_STAGING_KEYS: "true",
+      AGENTDESK_EXTERNAL_AI_DISABLED: "true",
+      ...overrides,
+    },
+  });
+
+  const isolated = validate({});
+  assert.equal(isolated.status, 0, isolated.stderr);
+  assert.match(isolated.stdout, /values hidden/);
+
+  const productionDatabase = validate({ NEXT_PUBLIC_SUPABASE_URL: "https://cdynahtkwtcinjzmxjcs.supabase.co" });
+  assert.equal(productionDatabase.status, 1);
+  assert.match(productionDatabase.stderr, /must never use the production/);
+
+  const productionPayments = validate({ NOWPAYMENTS_API_ORIGIN: "https://api.nowpayments.io" });
+  assert.equal(productionPayments.status, 1);
+  assert.match(productionPayments.stderr, /must use the NOWPayments sandbox API/);
+
+  const wrongStaging = validate({ NEXT_PUBLIC_SUPABASE_URL: "https://another-project.supabase.co" });
+  assert.equal(wrongStaging.status, 1);
+  assert.match(wrongStaging.stderr, /exact approved staging Supabase project/);
+
+  const externalAiEnabled = validate({ AGENTDESK_EXTERNAL_AI_DISABLED: "false" });
+  assert.equal(externalAiEnabled.status, 1);
+  assert.match(externalAiEnabled.stderr, /external AI providers must remain disabled/);
+});
+
+test("Netlify previews default to disabled sandbox payments and the synthetic runner strips remote credentials", () => {
+  const netlify = source("netlify.toml");
+  const runner = source("scripts/payments/test-nowpayments-synthetic.mjs");
+  const chat = source("app/api/chat/route.ts");
+  const imageProvider = source("lib/image-provider.ts");
+  assert.match(netlify, /\[context\.deploy-preview\.environment\][\s\S]*NOWPAYMENTS_ENABLED = "false"/);
+  assert.match(netlify, /NOWPAYMENTS_API_ORIGIN = "https:\/\/api\.sandbox\.nowpayments\.io"/);
+  assert.match(netlify, /AGENTDESK_EXPECTED_SUPABASE_PROJECT_REF = "koqlnjctqeaykhbqkyuj"/);
+  assert.match(netlify, /AGENTDESK_VERIFY_STAGING_KEYS = "true"/);
+  assert.match(netlify, /AGENTDESK_EXTERNAL_AI_DISABLED = "true"/);
+  assert.match(chat, /AGENTDESK_EXTERNAL_AI_DISABLED === "true"/);
+  assert.match(chat, /AI_PROVIDER_DISABLED/);
+  assert.match(imageProvider, /AGENTDESK_EXTERNAL_AI_DISABLED !== "true"/);
+  assert.match(imageProvider, /External AI is disabled in this environment/);
+  assert.doesNotMatch(netlify, /cdynahtkwtcinjzmxjcs/);
+  assert.match(runner, /NOWPAYMENTS_ENABLED: "false"/);
+  assert.match(runner, /delete env\[name\]/);
+  assert.match(runner, /SUPABASE_SERVICE_ROLE_KEY/);
+  assert.doesNotMatch(runner, /api\.nowpayments\.io/);
+  const runbook = source("docs/NOWPAYMENTS_48_HOUR_COMPLETION.md");
+  assert.match(runbook, /koqlnjctqeaykhbqkyuj\.supabase\.co/);
+  assert.match(runbook, /NOWPAYMENTS_ENABLED=false/);
+  assert.match(runbook, /staging-only `SUPABASE_SERVICE_ROLE_KEY`/);
+  assert.match(runbook, /do not publish production/i);
 });
 
 test("final launch checklist keeps external services disabled until separately verified", () => {

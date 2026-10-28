@@ -7,6 +7,19 @@
   NODE_VERSION = "22.13.0"
   NPM_FLAGS = "--no-audit --no-fund"
 
+# Safe code-level defaults for branch/PR previews. Secret values and the
+# staging Supabase credentials must be configured only in Netlify's Deploy
+# Preview scope. The deployment validator rejects the production Supabase
+# project and the live NOWPayments API in this context.
+[context.deploy-preview.environment]
+  NOWPAYMENTS_ENABLED = "false"
+  NOWPAYMENTS_API_ORIGIN = "https://api.sandbox.nowpayments.io"
+  AGENTDESK_EXPECTED_SUPABASE_PROJECT_REF = "koqlnjctqeaykhbqkyuj"
+  AGENTDESK_VERIFY_STAGING_KEYS = "true"
+  AGENTDESK_EXTERNAL_AI_DISABLED = "true"
+  NEXT_PUBLIC_GOOGLE_AUTH_ENABLED = "false"
+  NEXT_PUBLIC_FACEBOOK_AUTH_ENABLED = "false"
+
 [[headers]]
   for = "/widget.js"
   [headers.values]

@@ -1034,6 +1034,12 @@ Only say that an attachment was analyzed when its extracted text or image is pre
 
       let response;
       try {
+        if (process.env.AGENTDESK_EXTERNAL_AI_DISABLED === "true") {
+          return jsonResponse({
+            error: "External AI is disabled in this environment.",
+            code: "AI_PROVIDER_DISABLED",
+          }, 503);
+        }
         response = await openai.responses.create({
           model: OPENAI_MODEL,
           instructions,

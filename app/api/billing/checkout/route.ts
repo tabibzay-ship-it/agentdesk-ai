@@ -20,13 +20,18 @@ export async function POST(request: Request) {
     if (!isBillingPlanCode(body.planCode) || !isPaidPlan(body.planCode)) {
       return billingJson({ error: "Select a valid paid plan.", code: "INVALID_PLAN" }, 400);
     }
-    if (body.autoRenew !== true) {
-      return billingJson({ error: "Monthly automatic renewal requires explicit consent.", code: "AUTO_RENEW_CONSENT_REQUIRED" }, 400);
-    }
-
     const provider = getPaymentProvider();
     if (!provider.configured) {
       return billingJson({ error: "Paid checkout is not available yet.", code: "PAYMENT_PROVIDER_UNAVAILABLE" }, 503);
+    }
+    const customerInitiated = provider.name === "nowpayments";
+    if (customerInitiated ? body.renewalConsent !== true : body.autoRenew !== true) {
+      return billingJson({
+        error: customerInitiated
+          ? "Monthly renewal terms require explicit consent. Each renewal payment must be authorized separately."
+          : "Monthly automatic renewal requires explicit consent.",
+        code: "RENEWAL_CONSENT_REQUIRED",
+      }, 400);
     }
 
     const { admin, user } = authentication;
@@ -49,7 +54,7 @@ export async function POST(request: Request) {
       userId: user.id,
       planCode: body.planCode,
       returnUrl,
-      autoRenew: true,
+      autoRenew: !customerInitiated,
       billingPeriod: "monthly",
       renewal: isNowPaymentsRenewal,
     });

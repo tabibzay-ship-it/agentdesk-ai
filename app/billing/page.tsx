@@ -14,7 +14,9 @@ type BillingData = {
   paymentMethods: Array<{ id: string; brand: string; last4: string; exp_month: number | null; exp_year: number | null; is_default: boolean }>;
   billingEvents: Array<{ id: string; event_type: string; outcome: string; occurred_at: string | null; created_at: string }>;
   transactions: Array<{ id: string; amount_cents: number; currency: string; status: string; occurred_at: string; created_at: string }>;
-  checkout: { available: boolean; provider: string | null; renewalMode: "customer_initiated" | "provider_managed"; paymentMethodsAvailable: boolean; cancellationAvailable: boolean; message: string };
+  paymentOrder: null | { status: string; kind: string; created_at: string };
+  notices: Array<{ kind: "info" | "warning" | "error"; code: string; message: string }>;
+  checkout: { available: boolean; provider: string | null; renewalMode: "customer_initiated" | "provider_managed"; automaticChargingAvailable: boolean; paymentMethodsAvailable: boolean; cancellationAvailable: boolean; message: string };
 };
 
 const money = new Intl.NumberFormat("en-US", { style: "currency", currency: BILLING_CURRENCY, minimumFractionDigits: 0 });
@@ -26,7 +28,7 @@ export default function BillingPage() {
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
   const [pendingAction, setPendingAction] = useState<string | null>(null);
-  const [autoRenewConsent, setAutoRenewConsent] = useState(false);
+  const [renewalConsent, setRenewalConsent] = useState(false);
 
   async function authorizedPost(path: string, body?: Record<string, unknown>) {
     const { data: { session } } = await supabase.auth.getSession();
@@ -81,8 +83,10 @@ export default function BillingPage() {
     if (pendingAction) return;
     setError(""); setNotice(""); setPendingAction(planCode);
     try {
-      if (!autoRenewConsent) throw new Error(data?.checkout.renewalMode === "customer_initiated" ? "Confirm the monthly crypto renewal terms before continuing." : "Confirm monthly automatic renewal before continuing.");
-      const result = await authorizedPost("/api/billing/checkout", { planCode, autoRenew: true });
+      if (!renewalConsent) throw new Error(data?.checkout.renewalMode === "customer_initiated" ? "Confirm the customer-authorized renewal terms before continuing." : "Confirm monthly automatic renewal before continuing.");
+      const result = await authorizedPost("/api/billing/checkout", data?.checkout.renewalMode === "customer_initiated"
+        ? { planCode, renewalConsent: true, autoRenew: false }
+        : { planCode, renewalConsent: true, autoRenew: true });
       const checkoutUrl = new URL(String(result.checkoutUrl));
       if (checkoutUrl.protocol !== "https:") throw new Error("The payment provider returned an unsafe checkout URL.");
       window.location.assign(checkoutUrl.href);
@@ -178,9 +182,15 @@ export default function BillingPage() {
 
           {!data.checkout.available && <div className="mt-6 rounded-xl border border-amber-500/30 bg-amber-500/10 p-4 text-sm text-amber-100"><strong>Payments unavailable:</strong> {data.checkout.message}</div>}
 
+          {data.notices.map((item) => <div key={item.code} role={item.kind === "error" ? "alert" : "status"} className={`mt-4 rounded-xl border p-4 text-sm ${item.kind === "error" ? "border-red-500/40 bg-red-500/10 text-red-200" : item.kind === "warning" ? "border-amber-500/40 bg-amber-500/10 text-amber-200" : "border-blue-500/40 bg-blue-500/10 text-blue-200"}`}>{item.message}</div>)}
+
+          <section className="mt-6 rounded-xl border border-[var(--premium-border)] bg-[var(--premium-surface)] p-4">
+            <div className="flex items-center justify-between gap-4"><div><strong>Auto-Renew</strong><p className="mt-1 text-sm text-[var(--premium-text-muted)]">{data.checkout.automaticChargingAvailable ? "Automatic charging is available after explicit customer authorization." : "OFF — automatic wallet charging is not supported or verified for this payment method."}</p></div><button type="button" role="switch" aria-checked={false} disabled={!data.checkout.automaticChargingAvailable} className="min-h-11 min-w-20 rounded-full border border-slate-700 bg-slate-800 px-4 text-sm font-semibold text-slate-400 disabled:cursor-not-allowed">OFF</button></div>
+          </section>
+
           <label className="mt-6 flex min-h-12 items-start gap-3 rounded-xl border border-[var(--premium-border)] bg-[var(--premium-surface)] p-4 text-sm">
-            <input type="checkbox" checked={autoRenewConsent} onChange={(event) => setAutoRenewConsent(event.target.checked)} className="mt-0.5 h-5 w-5 accent-blue-600" />
-            <span><strong>{data.checkout.renewalMode === "customer_initiated" ? "Monthly crypto renewal" : "Monthly automatic renewal"}</strong><br/><span className="text-[var(--premium-text-muted)]">{data.checkout.renewalMode === "customer_initiated" ? "I understand each renewal requires a new confirmed crypto payment; AgentDesk will never charge a stored payment method automatically." : "I agree to monthly renewal at the displayed plan price until I cancel. Cancellation is requested for the end of the current billing period."}</span></span>
+            <input type="checkbox" checked={renewalConsent} onChange={(event) => setRenewalConsent(event.target.checked)} className="mt-0.5 h-5 w-5 accent-blue-600" />
+            <span><strong>{data.checkout.renewalMode === "customer_initiated" ? "Customer-authorized monthly renewal" : "Monthly automatic renewal"}</strong><br/><span className="text-[var(--premium-text-muted)]">{data.checkout.renewalMode === "customer_initiated" ? "I understand each renewal requires a new confirmed crypto payment; AgentDesk will never charge a stored payment method automatically. This preference only enables checkout and renewal reminders." : "I agree to monthly renewal at the displayed plan price until I cancel. Cancellation is requested for the end of the current billing period."}</span></span>
           </label>
 
           <section className="mt-10 grid gap-5 md:grid-cols-3">
@@ -193,7 +203,7 @@ export default function BillingPage() {
                 <p className="mt-3 min-h-10 text-sm text-slate-400">{plan.description}</p>
                 <ul className="mt-5 space-y-2 text-sm text-slate-300"><li>✓ {plan.agentLimit} AI {plan.agentLimit === 1 ? "Agent" : "Agents"}</li><li>✓ {plan.monthlyResponseLimit.toLocaleString()} AI responses / month</li></ul>
                 <button type="button" onClick={() => void startCheckout(plan.code)}
-                  disabled={(selected && !canRenew) || plan.priceCents === 0 || !data.checkout.available || !autoRenewConsent || pendingAction !== null}
+                  disabled={(selected && !canRenew) || plan.priceCents === 0 || !data.checkout.available || !renewalConsent || pendingAction !== null}
                   className="mt-6 min-h-12 w-full rounded-xl bg-blue-600 px-4 py-3 font-semibold text-white disabled:cursor-not-allowed disabled:bg-slate-800 disabled:text-slate-500">
                   {pendingAction === plan.code ? "Opening secure checkout…" : canRenew ? `Renew ${plan.name}` : selected ? "Current plan" : plan.priceCents === 0 ? "Free plan" : data.checkout.available ? `Choose ${plan.name}` : "Checkout unavailable"}
                 </button>

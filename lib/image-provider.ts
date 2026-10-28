@@ -33,13 +33,16 @@ async function verifiedPng(base64: string | undefined) {
 }
 
 export function imageProviderEnabled() {
-  return process.env.AGENTDESK_IMAGE_PROVIDER === "openai" && Boolean(process.env.OPENAI_API_KEY);
+  return process.env.AGENTDESK_EXTERNAL_AI_DISABLED !== "true" &&
+    process.env.AGENTDESK_IMAGE_PROVIDER === "openai" &&
+    Boolean(process.env.OPENAI_API_KEY);
 }
 
 export function createImageProvider(client: ImageClient = new OpenAI({ apiKey: process.env.OPENAI_API_KEY, timeout: 90_000, maxRetries: 0 })) {
   return {
     model: IMAGE_MODEL,
     async generate(prompt: string, userId: string): Promise<ProviderImage> {
+      if (process.env.AGENTDESK_EXTERNAL_AI_DISABLED === "true") throw new Error("External AI is disabled in this environment.");
       const response = await client.images.generate({
         model: IMAGE_MODEL,
         prompt: prompt.slice(0, 4_000),
@@ -54,6 +57,7 @@ export function createImageProvider(client: ImageClient = new OpenAI({ apiKey: p
       return { ...(await verifiedPng(response.data?.[0]?.b64_json)), model: IMAGE_MODEL, provider: "openai" };
     },
     async edit(source: Uint8Array, sourceMime: string, prompt: string, userId: string): Promise<ProviderImage> {
+      if (process.env.AGENTDESK_EXTERNAL_AI_DISABLED === "true") throw new Error("External AI is disabled in this environment.");
       const response = await client.images.edit({
         model: IMAGE_MODEL,
         image: await toFile(Buffer.from(source), "source.png", { type: sourceMime }),

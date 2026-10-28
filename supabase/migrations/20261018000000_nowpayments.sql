@@ -42,10 +42,6 @@ begin
     raise exception 'Invalid NOWPayments event';
   end if;
   v_event_id := p_payment_id || ':' || p_status;
-  if exists(select 1 from public.billing_events where provider='nowpayments' and provider_event_id=v_event_id) then
-    return jsonb_build_object('duplicate',true,'activated',false);
-  end if;
-
   select * into strict v_order from public.nowpayments_payment_orders where order_id=p_order_id for update;
   select * into strict v_plan from public.subscription_plans where code=v_order.plan_code and active is true and price_cents > 0;
   if round(p_price_amount * 100) <> v_order.amount_cents or upper(p_price_currency) <> v_order.currency then
@@ -53,6 +49,9 @@ begin
   end if;
   if v_order.provider_payment_id is not null and v_order.provider_payment_id <> p_payment_id then
     raise exception 'NOWPayments payment identity mismatch';
+  end if;
+  if exists(select 1 from public.billing_events where provider='nowpayments' and provider_event_id=v_event_id) then
+    return jsonb_build_object('duplicate',true,'activated',false);
   end if;
   if v_order.last_event_at is not null and p_occurred_at < v_order.last_event_at then
     insert into public.billing_events(user_id,provider,provider_event_id,event_type,outcome,occurred_at)
