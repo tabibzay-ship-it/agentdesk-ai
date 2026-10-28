@@ -27,7 +27,7 @@
   "dependencies": {
     "@supabase/supabase-js": "^2.117.2",
     "jszip": "^3.10.2",
-    "next": "16.3.8",
+    "next": "16.4.3",
     "openai": "^7.28.0",
     "parse5": "^8.0.0",
     "pdfjs-dist": "^6.4.299",
@@ -44,7 +44,7 @@
     "@types/react": "^19",
     "@types/react-dom": "^19",
     "eslint": "^9",
-    "eslint-config-next": "16.3.8",
+    "eslint-config-next": "16.4.3",
     "tailwindcss": "^4",
     "tsx": "^4.23.15",
     "typescript": "^5"
