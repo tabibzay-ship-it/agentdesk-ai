@@ -136,6 +136,43 @@ test("Netlify previews default to disabled sandbox payments and the synthetic ru
   assert.match(runbook, /do not publish production/i);
 });
 
+test("Cloudflare preview fails closed with staging-only secrets and disabled external providers", () => {
+  const manifest = JSON.parse(source("package.json"));
+  const wrangler = source("wrangler.jsonc");
+  const ignore = source(".gitignore");
+
+  assert.equal(manifest.devDependencies["@opennextjs/cloudflare"], "1.20.14");
+  assert.equal(manifest.devDependencies.wrangler, "4.155.0");
+  assert.equal(manifest.scripts["build:cloudflare"], "opennextjs-cloudflare build");
+  assert.match(wrangler, /"name":\s*"agentdesk-ai-staging-preview"/);
+  assert.match(wrangler, /"nodejs_compat"/);
+  assert.match(wrangler, /"global_fetch_strictly_public"/);
+  assert.match(wrangler, /"AGENTDESK_EXTERNAL_AI_DISABLED":\s*"true"/);
+  assert.match(wrangler, /"AGENTDESK_EXPECTED_SUPABASE_PROJECT_REF":\s*"koqlnjctqeaykhbqkyuj"/);
+  assert.match(wrangler, /"AGENTDESK_VERIFY_STAGING_KEYS":\s*"true"/);
+  assert.match(wrangler, /"NOWPAYMENTS_ENABLED":\s*"false"/);
+  assert.match(wrangler, /"NOWPAYMENTS_API_ORIGIN":\s*"https:\/\/api\.sandbox\.nowpayments\.io"/);
+  for (const secret of [
+    "NEXT_PUBLIC_SUPABASE_URL",
+    "NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY",
+    "SUPABASE_SERVICE_ROLE_KEY",
+    "AGENTDESK_APP_ORIGIN",
+  ]) assert.match(wrangler, new RegExp(`"${secret}"`));
+  assert.doesNotMatch(wrangler, /cdynahtkwtcinjzmxjcs/);
+  assert.doesNotMatch(wrangler, /api\.nowpayments\.io/);
+  assert.match(ignore, /^\/.open-next\/$/m);
+  assert.match(ignore, /^\/.wrangler\/$/m);
+  assert.match(ignore, /^\.dev\.vars\*$/m);
+});
+
+test("disabled external AI does not require an OpenAI secret during the production build", () => {
+  const chat = source("app/api/chat/route.ts");
+  assert.match(chat, /function createOpenAIClient\(\)/);
+  assert.match(chat, /AGENTDESK_EXTERNAL_AI_DISABLED === "true"/);
+  assert.match(chat, /createOpenAIClient\(\)\.responses\.create/);
+  assert.doesNotMatch(chat, /const openai = new OpenAI/);
+});
+
 test("final launch checklist keeps external services disabled until separately verified", () => {
   const checklist = source("docs/FINAL_PRODUCTION_LAUNCH_CHECKLIST.md");
   for (const signal of [
@@ -153,6 +190,8 @@ test("final launch checklist keeps external services disabled until separately v
 test("AgentDesk lint excludes the separate Reasonix test project", () => {
   const config = source("eslint.config.mjs");
   assert.match(config, /"Reasonix-Test\/\*\*"/);
+  assert.match(config, /"\.open-next\/\*\*"/);
+  assert.match(config, /"\.wrangler\/\*\*"/);
 });
 
 test("disposable Supabase publishes every host port on loopback only", () => {

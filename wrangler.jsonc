@@ -1,0 +1,33 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "agentdesk-ai-staging-preview",
+  "main": ".open-next/worker.js",
+  "compatibility_date": "2026-10-29",
+  "compatibility_flags": [
+    "nodejs_compat",
+    "global_fetch_strictly_public"
+  ],
+  "workers_dev": true,
+  "preview_urls": true,
+  "assets": {
+    "directory": ".open-next/assets",
+    "binding": "ASSETS"
+  },
+  "vars": {
+    "AGENTDESK_EXTERNAL_AI_DISABLED": "true",
+    "AGENTDESK_EXPECTED_SUPABASE_PROJECT_REF": "koqlnjctqeaykhbqkyuj",
+    "AGENTDESK_VERIFY_STAGING_KEYS": "true",
+    "NOWPAYMENTS_ENABLED": "false",
+    "NOWPAYMENTS_API_ORIGIN": "https://api.sandbox.nowpayments.io",
+    "NEXT_PUBLIC_GOOGLE_AUTH_ENABLED": "false",
+    "NEXT_PUBLIC_FACEBOOK_AUTH_ENABLED": "false"
+  },
+  "secrets": {
+    "required": [
+      "NEXT_PUBLIC_SUPABASE_URL",
+      "NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY",
+      "SUPABASE_SERVICE_ROLE_KEY",
+      "AGENTDESK_APP_ORIGIN"
+    ]
+  }
+}

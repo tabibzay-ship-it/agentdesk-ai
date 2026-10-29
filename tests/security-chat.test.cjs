@@ -123,7 +123,7 @@ function fixture(options = {}) {
     method: "POST", headers: { "Content-Type": "application/json", ...(origin !== undefined ? { Origin: origin } : {}) },
     body: JSON.stringify({ message: "Hello", agentId: agent, visitorId: visitor, ...overrides }),
   });
-  return { route, request, queries, rpcs, ai, logs, clientOptions };
+  return { route, request, queries, rpcs, ai, logs, get clientOptions() { return clientOptions; } };
 }
 
 test("rejects malformed, scalar, null and oversized request bodies before database access", async () => {
@@ -205,15 +205,19 @@ test("production cannot redirect OpenAI traffic through the local E2E base URL",
 });
 test("production-like local E2E requires an explicit flag and still accepts only loopback", async () => {
   const local = fixture({ environment: { NODE_ENV: "production", AGENTDESK_LOCAL_E2E: "1", AGENTDESK_LOCAL_OPENAI_BASE_URL: "http://127.0.0.1:43123/v1" } });
+  assert.equal((await local.route.POST(local.request())).status, 200);
   assert.equal(local.clientOptions.baseURL, "http://127.0.0.1:43123/v1");
   const rejected = fixture({ environment: { NODE_ENV: "production", AGENTDESK_LOCAL_E2E: "1", AGENTDESK_LOCAL_OPENAI_BASE_URL: "http://192.168.1.10:43123/v1" } });
+  assert.equal((await rejected.route.POST(rejected.request())).status, 200);
   assert.equal(rejected.clientOptions.baseURL, undefined);
 });
 test("development E2E accepts only an HTTP loopback OpenAI endpoint", async () => {
   const local = fixture({ environment: { NODE_ENV: "development", AGENTDESK_LOCAL_OPENAI_BASE_URL: "http://127.0.0.1:43123/v1" } });
+  assert.equal((await local.route.POST(local.request())).status, 200);
   assert.equal(local.clientOptions.baseURL, "http://127.0.0.1:43123/v1");
   for (const candidate of ["https://127.0.0.1:43123/v1", "http://192.168.1.10:43123/v1", "http://user:pass@localhost:43123/v1"]) {
     const rejected = fixture({ environment: { NODE_ENV: "development", AGENTDESK_LOCAL_OPENAI_BASE_URL: candidate } });
+    assert.equal((await rejected.route.POST(rejected.request())).status, 200);
     assert.equal(rejected.clientOptions.baseURL, undefined);
   }
 });

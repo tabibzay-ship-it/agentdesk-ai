@@ -68,15 +68,17 @@ export async function OPTIONS(request: Request) {
 // OPENAI
 // =========================================
 
-const openai = new OpenAI({
-  apiKey: process.env.OPENAI_API_KEY,
-  // Enables a loopback-only fake Responses API during authenticated local E2E.
-  // Production deliberately ignores this variable so prompts cannot be
-  // redirected to an untrusted endpoint by configuration alone.
-  ...(LOCAL_OPENAI_BASE_URL ? { baseURL: LOCAL_OPENAI_BASE_URL } : {}),
-  timeout: 45_000,
-  maxRetries: 0,
-});
+function createOpenAIClient() {
+  return new OpenAI({
+    apiKey: process.env.OPENAI_API_KEY,
+    // Enables a loopback-only fake Responses API during authenticated local E2E.
+    // Production deliberately ignores this variable so prompts cannot be
+    // redirected to an untrusted endpoint by configuration alone.
+    ...(LOCAL_OPENAI_BASE_URL ? { baseURL: LOCAL_OPENAI_BASE_URL } : {}),
+    timeout: 45_000,
+    maxRetries: 0,
+  });
+}
 
 // =========================================
 // SUPABASE ADMIN
@@ -1040,7 +1042,7 @@ Only say that an attachment was analyzed when its extracted text or image is pre
             code: "AI_PROVIDER_DISABLED",
           }, 503);
         }
-        response = await openai.responses.create({
+        response = await createOpenAIClient().responses.create({
           model: OPENAI_MODEL,
           instructions,
           input: [{
