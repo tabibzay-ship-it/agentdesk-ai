@@ -143,9 +143,16 @@ test("Cloudflare preview fails closed with staging-only secrets and disabled ext
 
   assert.equal(manifest.devDependencies["@opennextjs/cloudflare"], "1.20.14");
   assert.equal(manifest.devDependencies.wrangler, "4.155.0");
+  assert.equal(manifest.dependencies["@img/sharp-wasm32"], "0.35.5");
   assert.equal(manifest.scripts["build:cloudflare"], "opennextjs-cloudflare build");
   assert.match(wrangler, /"name":\s*"agentdesk-ai-staging-preview"/);
   assert.match(wrangler, /"nodejs_compat"/);
+
+  for (const file of ["lib/chat-artifacts.ts", "lib/image-provider.ts"]) {
+    const contents = source(file);
+    assert.doesNotMatch(contents, /import\s+sharp\s+from\s+["']sharp["']/);
+    assert.match(contents, /await import\(["']sharp["']\)/);
+  }
   assert.match(wrangler, /"global_fetch_strictly_public"/);
   assert.match(wrangler, /"AGENTDESK_EXTERNAL_AI_DISABLED":\s*"true"/);
   assert.match(wrangler, /"AGENTDESK_EXPECTED_SUPABASE_PROJECT_REF":\s*"koqlnjctqeaykhbqkyuj"/);

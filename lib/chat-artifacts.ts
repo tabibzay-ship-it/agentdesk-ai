@@ -1,7 +1,10 @@
 import { createHash, randomUUID } from "node:crypto";
 import { deflateSync } from "node:zlib";
 import JSZip from "jszip";
-import sharp from "sharp";
+
+async function loadSharp() {
+  return (await import("sharp")).default;
+}
 
 export const EXPORT_FORMATS = ["txt", "csv", "docx", "xlsx", "pdf"] as const;
 export type ExportFormat = (typeof EXPORT_FORMATS)[number];
@@ -84,6 +87,7 @@ function pdfLiteral(value: string) {
 }
 
 async function makePdf(content: string) {
+  const sharp = await loadSharp();
   const pages: string[][] = [];
   const wrapped = wrapText(content);
   for (let index = 0; index < Math.max(1, wrapped.length); index += 45) pages.push(wrapped.slice(index, index + 45));
@@ -130,6 +134,7 @@ export async function createTextArtifact(content: string, format: ExportFormat, 
 }
 
 export async function editImage(bytes: Uint8Array, operation: ImageEditOperation, sourceMime: string) {
+  const sharp = await loadSharp();
   let pipeline = sharp(bytes, { failOn: "error", limitInputPixels: 40_000_000 }).rotate();
   if (operation.type === "rotate") pipeline = pipeline.rotate(operation.degrees);
   else if (operation.type === "grayscale") pipeline = pipeline.grayscale();
@@ -173,6 +178,7 @@ export function classifyImageRequest(value: string, hasImage: boolean): ImageReq
 }
 
 export async function createTemplateImage(prompt: string, format: "logo" | "banner" | "poster" | "image") {
+  const sharp = await loadSharp();
   const dimensions = format === "banner" ? { width: 1200, height: 630 } : format === "poster" ? { width: 1080, height: 1350 } : { width: 1024, height: 1024 };
   const label = prompt.replace(/\b(generate|create|design|make|draw)\b/gi, "").replace(/\s+/g, " ").trim().slice(0, 100) || "AgentDesk Design";
   const safe = xml(label);

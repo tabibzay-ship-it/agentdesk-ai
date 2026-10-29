@@ -1,6 +1,9 @@
 import { createHash } from "node:crypto";
 import OpenAI, { toFile } from "openai";
-import sharp from "sharp";
+
+async function loadSharp() {
+  return (await import("sharp")).default;
+}
 
 export type ProviderImage = {
   bytes: Buffer;
@@ -18,6 +21,7 @@ function safetyIdentifier(userId: string) {
 }
 
 async function verifiedPng(base64: string | undefined) {
+  const sharp = await loadSharp();
   if (!base64) throw new Error("The image provider returned no image data.");
   const bytes = Buffer.from(base64, "base64");
   if (!bytes.length || bytes.byteLength > 10 * 1024 * 1024) throw new Error("The image provider returned an invalid image size.");

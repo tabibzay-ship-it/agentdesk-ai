@@ -28,6 +28,7 @@
     "dry-run:cloudflare": "opennextjs-cloudflare build && wrangler deploy --dry-run"
   },
   "dependencies": {
+    "@img/sharp-wasm32": "0.35.5",
     "@supabase/supabase-js": "^2.117.2",
     "jszip": "^3.10.2",
     "next": "16.4.3",
