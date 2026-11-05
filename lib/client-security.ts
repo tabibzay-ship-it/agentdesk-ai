@@ -42,7 +42,7 @@ export function safeAuthDestination(value: string | null | undefined): string {
   try {
     const url = new URL(value, "https://agentdesk.invalid");
     if (url.origin !== "https://agentdesk.invalid") return "/dashboard";
-    if (/^\/(login|register|forgot-password|verify-reset-code|reset-password)(\/|$)/.test(url.pathname)) {
+    if (/^\/(login|register|verify-email|forgot-password|verify-reset-code|reset-password)(\/|$)/.test(url.pathname)) {
       return "/dashboard";
     }
     return `${url.pathname}${url.search}${url.hash}`;

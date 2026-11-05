@@ -22,6 +22,7 @@ export default function robots(): MetadataRoute.Robots {
           "/reports",
           "/reset-password",
           "/settings",
+          "/verify-email",
           "/verify-reset-code",
           "/widget",
         ],

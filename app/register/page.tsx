@@ -7,6 +7,8 @@ import { supabase } from "../../lib/supabase";
 import { isBoundedText, isStrongPassword, isValidEmail } from "../../lib/client-security";
 import { AuthPreferences, useAuthLocale } from "@/components/auth-preferences";
 import { SocialAuthButtons } from "@/components/social-auth-buttons";
+import { authRetrySeconds } from "@/lib/auth-rate-limit";
+import { rememberSignupEmail, signupCooldownSeconds, startSignupCooldown } from "@/lib/signup-verification";
 
 export default function RegisterPage() {
   const router = useRouter();
@@ -16,11 +18,9 @@ export default function RegisterPage() {
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
   const [marketingConsent, setMarketingConsent] = useState(false);
-  const [registeredEmail, setRegisteredEmail] = useState("");
-  const [resending, setResending] = useState(false);
+  const [cooldown, setCooldown] = useState(0);
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
-  const [message, setMessage] = useState("");
   const [errorMessage, setErrorMessage] = useState("");
   const submitting = useRef(false);
 
@@ -32,19 +32,27 @@ export default function RegisterPage() {
     return () => { active = false; };
   }, [router]);
 
+  useEffect(() => {
+    const update = () => setCooldown(signupCooldownSeconds());
+    update();
+    const timer = window.setInterval(update, 1000);
+    return () => window.clearInterval(timer);
+  }, []);
+
   async function handleRegister(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
     if (submitting.current) return;
+    if (cooldown > 0) return;
 
-    setMessage("");
     setErrorMessage("");
+    const normalizedEmail = email.trim().toLowerCase();
 
     if (!fullName.trim() || !isBoundedText(fullName.trim(), 200)) {
       setErrorMessage(t.invalidName);
       return;
     }
 
-    if (!isValidEmail(email.trim())) {
+    if (!isValidEmail(normalizedEmail)) {
       setErrorMessage(t.invalidEmail);
       return;
     }
@@ -64,7 +72,7 @@ export default function RegisterPage() {
 
     try {
       const { data, error } = await supabase.auth.signUp({
-        email: email.trim(),
+        email: normalizedEmail,
         password,
         options: {
           data: {
@@ -82,8 +90,14 @@ export default function RegisterPage() {
 
       if (error) {
         // Provider responses can reveal whether an email is registered.
-        setErrorMessage(error.status === 429
-          ? t.tooMany : t.createFailed);
+        if (error.status === 429) {
+          const seconds = authRetrySeconds(60);
+          startSignupCooldown(seconds * 1000);
+          setCooldown(seconds);
+          setErrorMessage(`Too many attempts. Try again in ${seconds}s.`);
+        } else {
+          setErrorMessage(t.createFailed);
+        }
         return;
       }
 
@@ -93,40 +107,16 @@ export default function RegisterPage() {
         router.replace("/dashboard");
         return;
       }
-      setMessage(
-        t.checkEmail
-      );
-      setRegisteredEmail(email.trim());
-      setFullName("");
-      setEmail("");
+      rememberSignupEmail(normalizedEmail);
+      startSignupCooldown();
       setPassword("");
       setConfirmPassword("");
+      router.replace("/verify-email");
     } catch {
       setErrorMessage(t.createRetry);
     } finally {
       submitting.current = false;
       setLoading(false);
-    }
-  }
-
-  async function resendVerification() {
-    if (!registeredEmail || resending) return;
-    setErrorMessage("");
-    setMessage("");
-    setResending(true);
-    try {
-      const { error } = await supabase.auth.resend({
-        type: "signup",
-        email: registeredEmail,
-        options: { emailRedirectTo: `${window.location.origin}/auth/callback?next=%2Fdashboard` },
-      });
-      if (error?.status === 429) setErrorMessage(t.tooMany);
-      else if (error) setErrorMessage(t.createRetry);
-      else setMessage(t.verificationResent);
-    } catch {
-      setErrorMessage(t.createRetry);
-    } finally {
-      setResending(false);
     }
   }
 
@@ -240,26 +230,19 @@ export default function RegisterPage() {
               </div>
             )}
 
-            {message && (
-              <div role="status" aria-live="polite" className="mt-5 rounded-xl border border-green-500/30 bg-green-500/10 p-3 text-sm text-green-400">
-                {message}
-              </div>
+            {cooldown > 0 && (
+              <p role="status" aria-live="polite" className="sr-only">
+                Registration is temporarily paused for {cooldown} seconds.
+              </p>
             )}
 
             <button
               type="submit"
-              disabled={loading}
+              disabled={loading || cooldown > 0}
               className="mt-6 w-full rounded-xl bg-blue-600 py-3 font-semibold transition hover:bg-blue-500 disabled:cursor-not-allowed disabled:opacity-60"
             >
-              {loading ? <span role="status">{t.creating}</span> : t.createAccount}
+              {loading ? <span role="status">{t.creating}</span> : cooldown > 0 ? `Try again in ${cooldown}s` : t.createAccount}
             </button>
-
-            {registeredEmail && (
-              <button type="button" onClick={resendVerification} disabled={resending || loading}
-                className="mt-3 min-h-11 w-full rounded-xl border border-[var(--premium-border)] px-4 py-2 text-sm font-semibold text-blue-500 transition hover:bg-blue-500/10 disabled:cursor-not-allowed disabled:opacity-60">
-                {resending ? t.resendingVerification : t.resendVerification}
-              </button>
-            )}
 
             <SocialAuthButtons />
 

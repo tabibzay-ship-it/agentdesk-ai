@@ -2,6 +2,7 @@
 
 import { createClient } from "@supabase/supabase-js";
 import { isPublishableSupabaseKey } from "./client-security";
+import { supabaseFetch } from "./auth-rate-limit";
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
 const supabasePublishableKey =
@@ -17,6 +18,7 @@ export const supabase = createClient(
   supabaseUrl,
   supabasePublishableKey,
   {
+    global: { fetch: supabaseFetch },
     auth: {
       // The OAuth callback exchanges a one-time authorization code. PKCE keeps
       // the verifier in this browser instead of exposing a reusable secret.

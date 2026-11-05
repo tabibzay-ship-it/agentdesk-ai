@@ -10,10 +10,11 @@ const source = (file) => fs.readFileSync(path.join(root, file), "utf8");
 
 test("registration records an explicit optional marketing choice and supports safe verification resend", () => {
   const page = source("app/register/page.tsx");
+  const verification = source("app/verify-email/page.tsx");
   assert.match(page, /marketing_consent:\s*marketingConsent/);
-  assert.match(page, /type:\s*"signup"/);
+  assert.match(verification, /type:\s*"signup"/);
   assert.match(page, /emailRedirectTo:\s*`\$\{window\.location\.origin\}\/auth\/callback\?next=%2Fdashboard`/);
-  assert.match(page, /error\?\.status === 429/);
+  assert.match(page, /error(?:\?)?\.status === 429/);
   assert.doesNotMatch(page, /marketingConsent[^\n]+required/);
 });
 

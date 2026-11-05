@@ -22,7 +22,7 @@ function securityHelpers() {
 test("auth redirects accept only local non-auth destinations", () => {
   const { safeAuthDestination } = securityHelpers();
   assert.equal(safeAuthDestination("/conversations?filter=open#recent"), "/conversations?filter=open#recent");
-  for (const value of [null, "", "https://evil.example", "//evil.example", "/login", "/register/path", "/verify-reset-code", "/reset-password"]) {
+  for (const value of [null, "", "https://evil.example", "//evil.example", "/login", "/register/path", "/verify-email", "/verify-reset-code", "/reset-password"]) {
     assert.equal(safeAuthDestination(value), "/dashboard");
   }
 });
@@ -81,7 +81,7 @@ test("auth pages use English-only UI and share global theme controls", () => {
   const preferences = source("components/auth-preferences.tsx");
   const authPreferences = preferences.split("export function AppPreferences")[0];
   const translations = source("lib/auth-i18n.ts");
-  for (const page of ["login", "register", "forgot-password", "verify-reset-code", "reset-password"]) {
+  for (const page of ["login", "register", "verify-email", "forgot-password", "verify-reset-code", "reset-password"]) {
     const contents = source(`app/${page}/page.tsx`);
     assert.match(contents, /useAuthLocale\(true\)/);
     assert.match(contents, /<AuthPreferences/);

@@ -45,6 +45,7 @@ test("browser credentials reject service-role, secret, malformed and missing key
   assert.throws(() => load("lib/supabase.ts", {
     "@supabase/supabase-js": { createClient() { created = true; } },
     "./client-security": helpers,
+    "./auth-rate-limit": { supabaseFetch: async () => { throw new Error("not called"); } },
   }, { process: { env: { NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: jwt("service_role") } } }), /must be a publishable or anon key/);
   assert.equal(created, false);
 });
@@ -59,6 +60,7 @@ test("logout and account changes discard private page state without exposing ses
   load("lib/supabase.ts", {
     "@supabase/supabase-js": { createClient() { return { auth: { onAuthStateChange(fn) { callback = fn; } } }; } },
     "./client-security": helpers,
+    "./auth-rate-limit": { supabaseFetch: async () => { throw new Error("not called"); } },
   }, { window, process: { env: {
     NEXT_PUBLIC_SUPABASE_URL: "https://example.supabase.co",
     NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: "sb_publishable_test-key",
