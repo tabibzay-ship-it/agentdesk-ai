@@ -7,6 +7,8 @@ import { supabase } from "../../lib/supabase";
 import { isBoundedText, isValidEmail, safeAuthDestination } from "../../lib/client-security";
 import { AuthPreferences, useAuthLocale } from "@/components/auth-preferences";
 import { SocialAuthButtons } from "@/components/social-auth-buttons";
+import { authRetrySeconds } from "@/lib/auth-rate-limit";
+import { rememberSignupEmail, signupCooldownSeconds, startSignupCooldown } from "@/lib/signup-verification";
 
 export default function LoginPage() {
   const router = useRouter();
@@ -16,6 +18,10 @@ export default function LoginPage() {
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [resending, setResending] = useState(false);
+  const [resendCooldown, setResendCooldown] = useState(0);
+  const [verificationEmail, setVerificationEmail] = useState("");
+  const [verificationNotice, setVerificationNotice] = useState("");
   const [errorMessage, setErrorMessage] = useState("");
   const [notice] = useState(() => {
     if (typeof window === "undefined") return "";
@@ -36,11 +42,21 @@ export default function LoginPage() {
     return () => { active = false; };
   }, [router]);
 
+  useEffect(() => {
+    if (!verificationEmail) return;
+    const update = () => setResendCooldown(signupCooldownSeconds());
+    update();
+    const timer = window.setInterval(update, 1000);
+    return () => window.clearInterval(timer);
+  }, [verificationEmail]);
+
   async function handleLogin(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
     if (submitting.current) return;
 
     setErrorMessage("");
+    setVerificationEmail("");
+    setVerificationNotice("");
     if (!isValidEmail(email.trim()) || !password || !isBoundedText(password, 1024)) {
       setErrorMessage(t.invalidLogin);
       return;
@@ -49,14 +65,22 @@ export default function LoginPage() {
     setLoading(true);
 
     try {
+      const normalizedEmail = email.trim().toLowerCase();
       const { data, error } = await supabase.auth.signInWithPassword({
-        email: email.trim(),
+        email: normalizedEmail,
         password,
       });
 
       if (error) {
-        setErrorMessage(error.status === 429
-          ? t.tooMany : t.loginFailed);
+        if (error.status === 429) {
+          setErrorMessage(t.tooMany);
+        } else if (error.code === "email_not_confirmed") {
+          setVerificationEmail(normalizedEmail);
+          setPassword("");
+          setErrorMessage(t.verificationRequired);
+        } else {
+          setErrorMessage(t.loginFailed);
+        }
         return;
       }
 
@@ -72,6 +96,36 @@ export default function LoginPage() {
     } finally {
       submitting.current = false;
       setLoading(false);
+    }
+  }
+
+  async function resendVerification() {
+    if (!verificationEmail || resending || resendCooldown > 0) return;
+    setErrorMessage("");
+    setVerificationNotice("");
+    setResending(true);
+    try {
+      const { error } = await supabase.auth.resend({ type: "signup", email: verificationEmail });
+      if (error?.status === 429) {
+        const seconds = authRetrySeconds(60);
+        startSignupCooldown(seconds * 1000);
+        setResendCooldown(seconds);
+        setErrorMessage(t.tooMany);
+        return;
+      }
+      if (error) {
+        setErrorMessage(t.generic);
+        return;
+      }
+      startSignupCooldown();
+      setResendCooldown(60);
+      rememberSignupEmail(verificationEmail);
+      setVerificationNotice(t.verificationResent);
+      router.replace("/verify-email");
+    } catch {
+      setErrorMessage(t.generic);
+    } finally {
+      setResending(false);
     }
   }
 
@@ -163,6 +217,27 @@ export default function LoginPage() {
             {errorMessage && (
               <div role="alert" aria-live="assertive" className="mt-5 rounded-xl border border-red-500/30 bg-red-500/10 p-3 text-sm text-red-400">
                 {errorMessage}
+              </div>
+            )}
+
+            {verificationEmail && (
+              <button
+                type="button"
+                onClick={() => void resendVerification()}
+                disabled={resending || resendCooldown > 0}
+                className="mt-3 min-h-11 w-full rounded-xl border border-blue-500/40 px-4 text-sm font-semibold text-blue-400 disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                {resending
+                  ? t.resendingVerification
+                  : resendCooldown > 0
+                    ? `Resend available in ${resendCooldown}s`
+                    : t.resendVerification}
+              </button>
+            )}
+
+            {verificationNotice && (
+              <div role="status" aria-live="polite" className="mt-3 rounded-xl border border-emerald-500/30 bg-emerald-500/10 p-3 text-sm text-emerald-400">
+                {verificationNotice}
               </div>
             )}
 

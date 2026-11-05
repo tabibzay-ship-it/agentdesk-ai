@@ -57,6 +57,17 @@ test("login and registration prevent duplicate submissions and expose accessible
   assert.doesNotMatch(register, /emailRedirectTo: `\$\{window\.location\.origin\}\/login/);
 });
 
+test("login distinguishes verified credential failure from an unconfirmed account without weakening auth", () => {
+  const login = source("app/login/page.tsx");
+  assert.match(login, /error\.code === "email_not_confirmed"/);
+  assert.match(login, /supabase\.auth\.resend\(\{ type: "signup", email: verificationEmail \}\)/);
+  assert.match(login, /resendCooldown > 0/);
+  assert.match(login, /startSignupCooldown/);
+  assert.match(login, /rememberSignupEmail\(verificationEmail\)/);
+  assert.match(login, /router\.replace\("\/verify-email"\)/);
+  assert.doesNotMatch(login, /admin\.auth\.updateUserById|email_confirmed_at|autoConfirm/i);
+});
+
 test("recovery link flow is enumeration-safe and reset requires signed callback authorization", () => {
   const forgot = source("app/forgot-password/page.tsx");
   const reset = source("app/reset-password/page.tsx");
