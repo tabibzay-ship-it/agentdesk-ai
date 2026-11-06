@@ -16,5 +16,7 @@ test("production recovery identities are encrypted, separated, and production-sp
   assert.match(script, /USB recovery destination identity does not match the approved SanDisk device/);
   assert.match(script, /project_ref = 'cdynahtkwtcinjzmxjcs'/);
   assert.match(script, /Refusing to overwrite an existing/);
+  assert.match(script, /\[switch\]\$PreflightOnly/);
+  assert.match(script, /KeysGenerated = \$false/);
   assert.doesNotMatch(script, /Write-(?:Host|Output).*\$identity|Set-Content.*\$identity/im);
 });

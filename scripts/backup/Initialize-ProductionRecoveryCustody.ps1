@@ -1,15 +1,22 @@
 [CmdletBinding()]
 param(
-    [string]$AgePath = "$PSScriptRoot\..\..\.tools\age\v1.3.2\age\age.exe",
-    [string]$AgeKeygenPath = "$PSScriptRoot\..\..\.tools\age\v1.3.2\age\age-keygen.exe",
+    [string]$AgePath,
+    [string]$AgeKeygenPath,
     [string]$UsbDestination = 'E:\AgentDesk-Production-Recovery-Custody',
     [string]$OneDriveDestination = 'C:\Users\Abdul Halim Tabibzay\OneDrive\AgentDesk-Production-Recovery-Custody',
-    [string]$StateDirectory = 'C:\Users\Abdul Halim Tabibzay\AppData\Local\AgentDeskAI\production-recovery-state',
-    [string]$ExpectedUsbSerial = '09010f68e9482f693f08'
+    [string]$StateDirectory = 'C:\Users\Abdul Halim Tabibzay\Documents\AgentDesk-Production-Recovery-State',
+    [string]$ExpectedUsbSerial = '09010f68e9482f693f08',
+    [switch]$PreflightOnly
 )
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
+if ([string]::IsNullOrWhiteSpace($AgePath)) {
+    $AgePath = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..\..\.tools\age\v1.3.2\age\age.exe'))
+}
+if ([string]::IsNullOrWhiteSpace($AgeKeygenPath)) {
+    $AgeKeygenPath = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..\..\.tools\age\v1.3.2\age\age-keygen.exe'))
+}
 
 function Get-Sha256Hex {
     param([Parameter(Mandatory)][string]$Path)
@@ -102,18 +109,32 @@ if ([IO.Path]::GetPathRoot($UsbDestination) -eq [IO.Path]::GetPathRoot($OneDrive
     throw 'Recovery identities must use separate storage roots.'
 }
 
+if ($PreflightOnly) {
+    [pscustomobject]@{
+        Validation = 'PASS'
+        UsbDestination = $UsbDestination
+        OneDriveDestination = $OneDriveDestination
+        StateDirectory = $StateDirectory
+        AgeVersion = (& $AgePath --version)
+        AgeKeygenVersion = (& $AgeKeygenPath --version)
+        KeysGenerated = $false
+    }
+    return
+}
+
 $timestamp = [DateTime]::UtcNow.ToString('yyyyMMddTHHmmssZ')
 $identityA = New-EncryptedIdentity $UsbDestination 'identity-a' $timestamp
 $identityB = New-EncryptedIdentity $OneDriveDestination 'identity-b' $timestamp
 if ($identityA.Recipient -ceq $identityB.Recipient) { throw 'Generated recovery recipients are not independent.' }
 
 $statePath = Join-Path $StateDirectory "agentdesk-production-recovery-$timestamp.public.json"
-[ordered]@{
+$publicState = [ordered]@{
     created_utc = $timestamp
     project_ref = 'cdynahtkwtcinjzmxjcs'
     identity_a = [ordered]@{ artifact=$identityA.Artifact; recipient=$identityA.Recipient; sha256=$identityA.Sha256; bytes=$identityA.Bytes }
     identity_b = [ordered]@{ artifact=$identityB.Artifact; recipient=$identityB.Recipient; sha256=$identityB.Sha256; bytes=$identityB.Bytes }
-} | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath $statePath -Encoding utf8NoBOM
+}
+[IO.File]::WriteAllText($statePath, ($publicState | ConvertTo-Json -Depth 5), [Text.UTF8Encoding]::new($false))
 
 Write-Host 'PRODUCTION RECOVERY IDENTITIES CREATED. No plaintext identity was written to disk.' -ForegroundColor Green
 Write-Host 'Save both distinct passphrases in the OneDrive-independent password manager, then independently verify retrieval.'
