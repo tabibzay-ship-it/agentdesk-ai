@@ -20,7 +20,7 @@ The baseline supplies the original tables and native
 environment. Existing environments must begin with their next unapplied layer
 instead of replaying the baseline.
 
-## Production audit reconciliation (2026-10-16)
+## Historical production audit reconciliation (2026-10-16)
 
 The read-only audit verified PostgreSQL 17.11 on production project
 `cdynahtkwtcinjzmxjcs`; staging remains `koqlnjctqeaykhbqkyuj`. The production
@@ -30,21 +30,30 @@ layers are already schema-equivalent:
 1. `20261007000000_add_agent_allowed_domains.sql`
 2. `20261007010000_security_hardening.sql`
 3. `20261009000000_subscription_billing.sql`
-4. `20261010000000_knowledge_attachments.sql`
+4. `20261010000000_chat_attachments.sql`
 
-These four layers remain pending and must be rehearsed in this exact order:
+At that historical audit date, these four later layers were pending:
 
 1. `20261011000000_super_admin.sql`
 2. `20261012000000_leads_appointments.sql`
 3. `20261013000000_marketing_consent.sql`
 4. `20261014000000_trial_recurring_payment_methods.sql`
 
+That historical result is not a current production migration decision. The
+repository now contains 13 ordered migrations through
+`20261018000000_nowpayments.sql`. Before any production change, rerun the
+bounded read-only catalog preflight and compare every committed layer. Until
+that current comparison succeeds, versions `20261011000000` through
+`20261018000000` must all be treated as **unverified**, not assumed pending or
+applied.
+
 Do not infer an empty database from the absent ledger. Before any production
 change, obtain an approved encrypted logical backup and successful isolated
 restore. In the isolated rehearsal only, adopt the four schema-equivalent
 versions into the ledger, confirm discovery shows exactly the four pending
 versions, and then apply the pending files one at a time. Production ledger
-adoption and migration execution each require separate approval.
+adoption and migration execution each require separate approval. Never insert
+ledger versions solely from this historical list.
 
 ## Staging backup
 

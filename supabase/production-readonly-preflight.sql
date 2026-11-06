@@ -1,6 +1,9 @@
 -- Production catalog preflight. This transaction is explicitly read-only and
 -- never queries customer-owned table rows.
 begin transaction read only;
+set local statement_timeout = '30s';
+set local lock_timeout = '3s';
+set local idle_in_transaction_session_timeout = '45s';
 
 select jsonb_build_object(
   'database', jsonb_build_object(
@@ -107,8 +110,91 @@ select jsonb_build_object(
   ),
   'migration_ledger', jsonb_build_object(
     'exists',to_regclass('supabase_migrations.schema_migrations') is not null,
-    'note','Versions are intentionally not queried when the optional ledger relation is absent.'
+    'note','Ledger versions are queried separately only when the optional relation exists.'
+  ),
+  'catalog_relations', (
+    select coalesce(jsonb_agg(jsonb_build_object(
+      'schema',n.nspname,'name',c.relname,'kind',c.relkind,
+      'owner',pg_get_userbyid(c.relowner),'rls',c.relrowsecurity,'forced_rls',c.relforcerowsecurity
+    ) order by n.nspname,c.relname),'[]'::jsonb)
+    from pg_class c join pg_namespace n on n.oid=c.relnamespace
+    where n.nspname in ('public','agentdesk_private')
+      and c.relkind in ('r','p','v','m','S')
+  ),
+  'catalog_columns', (
+    select coalesce(jsonb_agg(jsonb_build_object(
+      'schema',n.nspname,'table',c.relname,'column',a.attname,
+      'type',format_type(a.atttypid,a.atttypmod),'not_null',a.attnotnull,
+      'identity',a.attidentity,'generated',a.attgenerated
+    ) order by n.nspname,c.relname,a.attnum),'[]'::jsonb)
+    from pg_attribute a
+    join pg_class c on c.oid=a.attrelid
+    join pg_namespace n on n.oid=c.relnamespace
+    where n.nspname in ('public','agentdesk_private')
+      and c.relkind in ('r','p','v','m') and a.attnum>0 and not a.attisdropped
+  ),
+  'catalog_constraints', (
+    select coalesce(jsonb_agg(jsonb_build_object(
+      'schema',n.nspname,'table',c.relname,'name',con.conname,
+      'type',con.contype,'definition',pg_get_constraintdef(con.oid,true)
+    ) order by n.nspname,c.relname,con.conname),'[]'::jsonb)
+    from pg_constraint con
+    join pg_class c on c.oid=con.conrelid
+    join pg_namespace n on n.oid=c.relnamespace
+    where n.nspname in ('public','agentdesk_private')
+  ),
+  'catalog_indexes', (
+    select coalesce(jsonb_agg(jsonb_build_object(
+      'schema',schemaname,'table',tablename,'name',indexname,'definition',indexdef
+    ) order by schemaname,tablename,indexname),'[]'::jsonb)
+    from pg_indexes where schemaname in ('public','agentdesk_private')
+  ),
+  'catalog_policies', (
+    select coalesce(jsonb_agg(jsonb_build_object(
+      'schema',schemaname,'table',tablename,'name',policyname,'permissive',permissive,
+      'roles',roles,'command',cmd,'using',qual,'check',with_check
+    ) order by schemaname,tablename,policyname),'[]'::jsonb)
+    from pg_policies where schemaname in ('public','agentdesk_private')
+  ),
+  'catalog_functions', (
+    select coalesce(jsonb_agg(jsonb_build_object(
+      'schema',n.nspname,'name',p.proname,
+      'arguments',pg_get_function_identity_arguments(p.oid),
+      'result',pg_get_function_result(p.oid),'security_definer',p.prosecdef,
+      'settings',coalesce(to_jsonb(p.proconfig),'[]'::jsonb),
+      'owner',pg_get_userbyid(p.proowner)
+    ) order by n.nspname,p.proname,pg_get_function_identity_arguments(p.oid)),'[]'::jsonb)
+    from pg_proc p join pg_namespace n on n.oid=p.pronamespace
+    where n.nspname in ('public','agentdesk_private')
+  ),
+  'catalog_grants', (
+    select coalesce(jsonb_agg(jsonb_build_object(
+      'schema',table_schema,'table',table_name,'grantee',grantee,'privilege',privilege_type
+    ) order by table_schema,table_name,grantee,privilege_type),'[]'::jsonb)
+    from information_schema.role_table_grants
+    where table_schema in ('public','agentdesk_private')
+      and grantee in ('anon','authenticated','service_role')
+  ),
+  'catalog_default_acls', (
+    select coalesce(jsonb_agg(jsonb_build_object(
+      'owner',owner.rolname,'schema',coalesce(n.nspname,''),'object_type',d.defaclobjtype,
+      'acl',coalesce(d.defaclacl::text,'')
+    ) order by owner.rolname,coalesce(n.nspname,''),d.defaclobjtype),'[]'::jsonb)
+    from pg_default_acl d
+    join pg_roles owner on owner.oid=d.defaclrole
+    left join pg_namespace n on n.oid=d.defaclnamespace
+    where n.nspname is null or n.nspname in ('public','agentdesk_private')
   )
 ) as production_preflight;
+
+select (to_regclass('supabase_migrations.schema_migrations') is not null)::text
+  as migration_ledger_present \gset
+\if :migration_ledger_present
+select coalesce(jsonb_agg(version::text order by version::text),'[]'::jsonb)
+  as migration_ledger_versions
+from supabase_migrations.schema_migrations;
+\else
+select '[]'::jsonb as migration_ledger_versions;
+\endif
 
 rollback;
