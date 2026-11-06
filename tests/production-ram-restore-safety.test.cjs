@@ -10,5 +10,6 @@ test('production restore validates approved backup and emits aggregates only',()
  assert.doesNotMatch(text,/function New-Proc\([^\n]*\$Args\)/);
  assert.match(text,/cdynahtkwtcinjzmxjcs/);assert.match(text,/ciphertext hash mismatch/i);assert.match(text,/plaintext_sha256/);
  assert.match(text,/total_rows/);assert.match(text,/rls_tables/);assert.match(text,/acl_entries/);
+ assert.match(text,/\$roles=@\('postgres','anon'/);
  assert.doesNotMatch(text,/select \* from/i);
 });
