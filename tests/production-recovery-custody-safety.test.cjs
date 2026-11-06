@@ -27,7 +27,8 @@ test("production recovery identities are encrypted, separated, and production-sp
 
 test("production recovery verification keeps plaintext identities off disk", () => {
   assert.match(verifier, /project_ref -cne 'cdynahtkwtcinjzmxjcs'/);
-  assert.match(verifier, /Get-FileHash -LiteralPath \$artifact -Algorithm SHA256/);
+  assert.match(verifier, /\[Security\.Cryptography\.SHA256\]::Create\(\)/);
+  assert.match(verifier, /Get-Sha256Hex \$artifact/);
   assert.match(verifier, /--decrypt \$aPath \| & \$AgePath --decrypt --identity - \$cipher/);
   assert.match(verifier, /--decrypt \$bPath \| & \$AgePath --decrypt --identity - \$cipher/);
   assert.match(verifier, /Remove-Item -LiteralPath \$cipher -Force/);

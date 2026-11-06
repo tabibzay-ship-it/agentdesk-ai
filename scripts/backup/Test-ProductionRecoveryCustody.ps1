@@ -6,6 +6,18 @@ param(
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
+
+function Get-Sha256Hex {
+    param([Parameter(Mandatory)][string]$Path)
+    $stream = [IO.File]::OpenRead($Path)
+    try {
+        $sha = [Security.Cryptography.SHA256]::Create()
+        try { return ([BitConverter]::ToString($sha.ComputeHash($stream))).Replace('-', '') }
+        finally { $sha.Dispose() }
+    }
+    finally { $stream.Dispose() }
+}
+
 if ([string]::IsNullOrWhiteSpace($AgePath)) {
     $AgePath = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..\..\.tools\age\v1.3.2\age\age.exe'))
 }
@@ -20,7 +32,7 @@ $bPath = [string]$state.identity_b.artifact
 foreach ($entry in @($state.identity_a, $state.identity_b)) {
     $artifact = [string]$entry.artifact
     if (-not (Test-Path -LiteralPath $artifact -PathType Leaf)) { throw "Encrypted recovery identity is missing: $artifact" }
-    if ((Get-FileHash -LiteralPath $artifact -Algorithm SHA256).Hash -cne [string]$entry.sha256) {
+    if ((Get-Sha256Hex $artifact) -cne [string]$entry.sha256) {
         throw "Encrypted recovery identity integrity failed: $artifact"
     }
 }
