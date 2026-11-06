@@ -8,7 +8,7 @@ param(
 Set-StrictMode -Version Latest;$ErrorActionPreference='Stop'
 $expectedImage='public.ecr.aws/supabase/postgres@sha256:6058a6759ab9268cff8ee70641d61f1bd75953316281b76427cf5a6b4db2eafc'
 function Get-Sha([string]$Path){$s=[IO.File]::OpenRead($Path);try{$h=[Security.Cryptography.SHA256]::Create();try{([BitConverter]::ToString($h.ComputeHash($s))).Replace('-','').ToLowerInvariant()}finally{$h.Dispose()}}finally{$s.Dispose()}}
-function New-Proc([string]$Path,[string[]]$Args){$i=[Diagnostics.ProcessStartInfo]::new();$i.FileName=$Path;$i.UseShellExecute=$false;$i.CreateNoWindow=$true;foreach($a in $Args){[void]$i.ArgumentList.Add($a)};$p=[Diagnostics.Process]::new();$p.StartInfo=$i;$p}
+function New-Proc([string]$Path,[string[]]$Arguments){$i=[Diagnostics.ProcessStartInfo]::new();$i.FileName=$Path;$i.UseShellExecute=$false;$i.CreateNoWindow=$true;foreach($a in $Arguments){[void]$i.ArgumentList.Add($a)};$p=[Diagnostics.Process]::new();$p.StartInfo=$i;$p}
 if($Image-cne$expectedImage){throw 'Pinned Supabase image mismatch.'}
 $backup=[IO.Path]::GetFullPath($BackupDirectory);$manifest=Get-Content -LiteralPath (Join-Path $backup 'manifest.json') -Raw|ConvertFrom-Json
 if($manifest.project_ref-cne'cdynahtkwtcinjzmxjcs'-or$manifest.status-cne'complete'-or-not$manifest.source_read_only-or-not$manifest.tls_verify_full-or$manifest.plaintext_written_to_disk){throw 'Approved production backup manifest gate failed.'}

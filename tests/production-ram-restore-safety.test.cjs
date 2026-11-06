@@ -6,6 +6,8 @@ test('production restore is isolated and RAM-only',()=>{
  assert.match(text,/docker rm -f \$container/);assert.match(text,/plaintext_host_artifacts=\$false/);
 });
 test('production restore validates approved backup and emits aggregates only',()=>{
+ assert.match(text,/function New-Proc\(\[string\]\$Path,\[string\[\]\]\$Arguments\)/);
+ assert.doesNotMatch(text,/function New-Proc\([^\n]*\$Args\)/);
  assert.match(text,/cdynahtkwtcinjzmxjcs/);assert.match(text,/ciphertext hash mismatch/i);assert.match(text,/plaintext_sha256/);
  assert.match(text,/total_rows/);assert.match(text,/rls_tables/);assert.match(text,/acl_entries/);
  assert.doesNotMatch(text,/select \* from/i);
