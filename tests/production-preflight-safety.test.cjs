@@ -21,9 +21,13 @@ test("production preflight launcher fails closed around project identity, TLS an
   assert.match(launcher, /Assert-ProductionConnection \$databaseUrl/);
   assert.match(launcher, /\$uri\.Port -ne 5432/);
   assert.match(launcher, /sslmode=verify-full/);
-  assert.match(launcher, /sslrootcert=system/);
-  assert.match(launcher, /Read-Host 'Paste the password-free PRODUCTION Session Pooler URI \(hidden\)' -AsSecureString/);
+  assert.match(launcher, /SslRootCertPath/);
+  assert.match(launcher, /807025AD50D4ED219D2C9C7D299C004F824EB00CF7F65AFEF607D07B72E6CAFA/);
+  assert.match(launcher, /sslrootcert=' \+ \[Uri\]::EscapeDataString\(\$resolvedSslRootCertPath\)/);
+  assert.match(launcher, /Read-Host 'Paste the copied PRODUCTION Session Pooler URI \(hidden; any embedded password is discarded\)' -AsSecureString/);
   assert.match(launcher, /Read-Host 'Enter the existing PRODUCTION database password \(hidden\)' -AsSecureString/);
+  assert.match(launcher, /\$sanitizedBuilder\.Password = ''/);
+  assert.match(launcher, /Assert-ProductionConnection \$databaseUrl/);
   assert.match(launcher, /default_transaction_read_only=on/);
   assert.match(launcher, /--no-psqlrc/);
   assert.match(launcher, /ON_ERROR_STOP=1/);

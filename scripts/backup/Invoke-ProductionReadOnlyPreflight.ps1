@@ -2,6 +2,7 @@
 param(
     [string]$PsqlPath = "$env:LOCALAPPDATA\AgentDeskAI\tools\postgresql-17.11-5\extracted\pgsql\bin\psql.exe",
     [string]$SqlPath = "$PSScriptRoot\..\..\supabase\production-readonly-preflight.sql",
+    [string]$SslRootCertPath = "$PSScriptRoot\certificates\supabase-root-2021-ca.crt",
     [string]$OutputPath
 )
 
@@ -24,10 +25,43 @@ if ($LASTEXITCODE -ne 0 -or $version -notmatch 'psql \(PostgreSQL\) 17\.') {
     throw 'Verified PostgreSQL 17 psql is required.'
 }
 
-$urlSecure = Read-Host 'Paste the password-free PRODUCTION Session Pooler URI (hidden)' -AsSecureString
+if (-not (Test-Path -LiteralPath $SslRootCertPath -PathType Leaf)) {
+    throw 'The pinned Supabase Root CA certificate is unavailable.'
+}
+$resolvedSslRootCertPath = [IO.Path]::GetFullPath($SslRootCertPath)
+$certificate = [Security.Cryptography.X509Certificates.X509Certificate2]::new($resolvedSslRootCertPath)
+try {
+    $fingerprint = $certificate.GetCertHashString([Security.Cryptography.HashAlgorithmName]::SHA256)
+    if ($fingerprint -cne '807025AD50D4ED219D2C9C7D299C004F824EB00CF7F65AFEF607D07B72E6CAFA') {
+        throw 'The Supabase Root CA SHA-256 fingerprint does not match the approved certificate.'
+    }
+    if ($certificate.Subject -notmatch 'CN=Supabase Root 2021 CA' -or $certificate.Issuer -notmatch 'CN=Supabase Root 2021 CA') {
+        throw 'The approved Supabase Root CA identity did not match.'
+    }
+    $now = Get-Date
+    if ($now -lt $certificate.NotBefore -or $now -gt $certificate.NotAfter) {
+        throw 'The approved Supabase Root CA is outside its validity period.'
+    }
+}
+finally { $certificate.Dispose() }
+
+$urlSecure = Read-Host 'Paste the copied PRODUCTION Session Pooler URI (hidden; any embedded password is discarded)' -AsSecureString
 $databaseUrl = ConvertFrom-LocalSecureString $urlSecure
 $urlSecure.Dispose()
-if ([string]::IsNullOrWhiteSpace($databaseUrl)) { throw 'A password-free production Session Pooler URI is required.' }
+if ([string]::IsNullOrWhiteSpace($databaseUrl)) { throw 'A production Session Pooler URI is required.' }
+
+# Supabase may copy a URI containing a placeholder or an embedded password.
+# Discard that value immediately; authentication still uses the separate hidden
+# password prompt below and the sanitized URI is the only URI passed to psql.
+$copiedUri = [Uri]$databaseUrl
+if ($copiedUri.UserInfo -match ':') {
+    $sanitizedBuilder = [UriBuilder]$copiedUri
+    $sanitizedBuilder.UserName = [Uri]::UnescapeDataString(($copiedUri.UserInfo -split ':', 2)[0])
+    $sanitizedBuilder.Password = ''
+    $databaseUrl = $sanitizedBuilder.Uri.AbsoluteUri
+    $sanitizedBuilder = $null
+    $copiedUri = $null
+}
 
 Assert-ProductionConnection $databaseUrl
 $uri = [Uri]$databaseUrl
@@ -38,7 +72,7 @@ $queryParts = @($uri.Query.TrimStart('?') -split '&' | Where-Object {
     $_ -and $_ -notmatch '^(?i:sslmode|sslrootcert)='
 })
 $queryParts += 'sslmode=verify-full'
-$queryParts += 'sslrootcert=system'
+$queryParts += 'sslrootcert=' + [Uri]::EscapeDataString($resolvedSslRootCertPath)
 $builder.Query = $queryParts -join '&'
 $verifiedUrl = $builder.Uri.AbsoluteUri
 

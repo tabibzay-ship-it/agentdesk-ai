@@ -67,17 +67,24 @@ hashes.
 
 ## Database status
 
-- The production catalog result dated 2026-10-16 is historical only. It found
-  PostgreSQL 17.11, no migration-ledger relation, and schema-equivalent evidence
-  for four layers through `20261010000000_chat_attachments.sql`.
-- Current production schema and ledger status are **BLOCKED** until the owner
-  enters the password-free production Session Pooler URI and password through
-  the reviewed hidden local prompts. The preflight uses TLS `verify-full`,
-  process-level `default_transaction_read_only=on`, an explicit read-only
-  transaction, short statement/lock/idle timeouts, catalog queries only, and
-  `ROLLBACK`.
-- Because current production metadata is not yet available, no migration may be
-  classified as currently applied or pending from historical evidence alone.
+- The current bounded production catalog preflight passed on 2026-11-06. Its
+  sanitized report SHA-256 is
+  `6BD3FF62691BB002B9C1C59D66A88628CFE39E13AA65683A4F1E17F66756BE8A`.
+  It verified PostgreSQL 17.11, a 12,801,715-byte database, 15 application
+  tables, 34 indexes, 18 RLS policies and 11 functions without querying customer
+  rows. The transaction rolled back and performed no writes.
+- The `supabase_migrations.schema_migrations` ledger is absent. Sentinel objects
+  for versions `20261006000000` through `20261010000000` are present and support
+  schema-equivalence, but those versions remain **AMBIGUOUS** as historical
+  executions because no ledger exists. Every sentinel inspected for versions
+  `20261011000000` through `20261018000000` is absent; those eight layers are
+  **NOT APPLIED** in the current production schema.
+- The preflight used TLS `verify-full`, process-level
+  `default_transaction_read_only=on`, an explicit read-only transaction, a
+  fingerprint-pinned and validity-checked Supabase Root 2021 CA, short
+  statement/lock/idle timeouts, catalog queries only, and `ROLLBACK`.
+- AI emergency-shutdown controls from `20261017000000_ai_credit_controls.sql`
+  are not present in production. External AI must remain disabled.
 
 ## Required production sequence
 
@@ -107,8 +114,9 @@ pwsh -NoProfile -File ".\scripts\backup\Invoke-ProductionReadOnlyPreflight.ps1" 
 
 The URI must identify `postgres.cdynahtkwtcinjzmxjcs`, use a Supabase Session
 Pooler on port 5432, and target database `postgres`. The launcher replaces any
-TLS query settings with `sslmode=verify-full&sslrootcert=system` and rejects a
-URI containing a password.
+TLS query settings with `sslmode=verify-full` and the fingerprint-pinned
+Supabase Root 2021 CA. Any password copied inside the URI is discarded; the
+separate hidden password prompt remains the only authentication source.
 
 ## Proposed production backup custody
 
@@ -137,8 +145,8 @@ are measured read-only with a safety multiplier.
 ## Release decision
 
 - Local candidate verification: **PASS**.
-- Production database compatibility: **BLOCKED** (current catalog evidence not
-  yet collected).
+- Production database compatibility: **FAIL / NO-GO** (eight required migration
+  layers are absent and the first five have no trustworthy ledger entries).
 - Production backup/restore: **BLOCKED** (no authorized production export in
   this phase).
 - Existing-user hosted password reset and login completion: **BLOCKED** on
