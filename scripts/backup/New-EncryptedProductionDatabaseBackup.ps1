@@ -80,9 +80,15 @@ try{
     if(-not$PSCmdlet.ShouldProcess('Supabase production cdynahtkwtcinjzmxjcs','read-only pg_dump streamed directly to age')){return}
     $ageArgs=@('--encrypt');foreach($recipient in $recipients){$ageArgs+=@('--recipient',$recipient)};$ageArgs+=@('--output',$archive,'-')
     $env:PGPASSWORD=$password;$env:PGOPTIONS='-c default_transaction_read_only=on -c lock_timeout=3000 -c statement_timeout=1800000'
-    $plainHash=Invoke-CheckedNativePipeline $PgDumpPath @('--dbname',$verifiedUrl,'--format=custom','--no-owner','--file=-') $AgePath $ageArgs $archive -ProducerNeedsDatabasePassword
+    # pg_dump writes to stdout when no --file option is supplied. On Windows,
+    # --file=- creates a literal file named "-", so it is intentionally forbidden.
+    $plainHash=Invoke-CheckedNativePipeline $PgDumpPath @('--dbname',$verifiedUrl,'--format=custom','--no-owner') $AgePath $ageArgs $archive -ProducerNeedsDatabasePassword
     $password=$null;Remove-Item Env:PGPASSWORD -ErrorAction SilentlyContinue;Remove-Item Env:PGOPTIONS -ErrorAction SilentlyContinue
     $cipherHash=Get-Sha256Hex $archive;$bytes=(Get-Item $archive).Length
+    if($plainHash -ceq 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855' -or $bytes -lt 1024){
+        throw 'pg_dump produced an empty or implausibly small encrypted stream.'
+    }
+    if(Test-Path -LiteralPath (Join-Path (Get-Location) '-') -PathType Leaf){throw 'Unsafe literal pg_dump output file detected.'}
     Copy-Item -LiteralPath $archive -Destination (Join-Path $copyRun 'production-database.custom.age') -ErrorAction Stop
     if((Get-Sha256Hex (Join-Path $copyRun 'production-database.custom.age'))-cne$cipherHash){throw 'Independent ciphertext copy hash mismatch.'}
     $manifest=[ordered]@{manifest_version=1;backup_id=$id;project_ref='cdynahtkwtcinjzmxjcs';created_utc=[DateTime]::UtcNow.ToString('o');source_read_only=$true;tls_verify_full=$true;plaintext_written_to_disk=$false;artifact='production-database.custom.age';encrypted_bytes=$bytes;plaintext_sha256=$plainHash;ciphertext_sha256=$cipherHash;recipients=$recipients;secondary_copy=$copyRun;status='complete'}

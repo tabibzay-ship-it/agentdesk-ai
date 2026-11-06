@@ -4,7 +4,10 @@ test('production database backup is fail-closed and stream encrypted',()=>{
   assert.match(text,/ProductionDataAccessApproved/);assert.match(text,/Assert-ProductionConnection/);
   assert.match(text,/sslmode=verify-full/);assert.match(text,/default_transaction_read_only=on/);
   assert.match(text,/Invoke-CheckedNativePipeline \$PgDumpPath/);assert.match(text,/plaintext_written_to_disk=\$false/);
-  assert.match(text,/@\('--dbname',\$verifiedUrl,'--format=custom','--no-owner','--file=-'\)/);
+  assert.match(text,/@\('--dbname',\$verifiedUrl,'--format=custom','--no-owner'\)/);
+  assert.doesNotMatch(text,/['"]--file=-['"]/);
+  assert.match(text,/empty or implausibly small encrypted stream/);
+  assert.match(text,/Unsafe literal pg_dump output file detected/);
   assert.match(text,/Independent ciphertext copy hash mismatch/);
   assert.match(text,/\$sanitizedBuilder\.Password=''/);
   assert.match(text,/separate hidden prompt is the only/);
