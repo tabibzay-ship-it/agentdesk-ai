@@ -3,7 +3,9 @@ param(
  [Parameter(Mandatory)][string]$BackupDirectory,
  [string]$RecoveryStatePath='C:\Users\Abdul Halim Tabibzay\Documents\AgentDesk-Production-Recovery-State\agentdesk-production-recovery-20261106T213959Z.public.json',
  [string]$Image='public.ecr.aws/supabase/postgres@sha256:6058a6759ab9268cff8ee70641d61f1bd75953316281b76427cf5a6b4db2eafc',
- [string]$AgePath="$PSScriptRoot\..\..\.tools\age\v1.3.2\age\age.exe"
+ [string]$AgePath="$PSScriptRoot\..\..\.tools\age\v1.3.2\age\age.exe",
+ [switch]$RehearseMigrations,
+ [string]$MigrationRoot="$PSScriptRoot\..\..\supabase\migrations"
 )
 Set-StrictMode -Version Latest;$ErrorActionPreference='Stop'
 $expectedImage='public.ecr.aws/supabase/postgres@sha256:6058a6759ab9268cff8ee70641d61f1bd75953316281b76427cf5a6b4db2eafc'
@@ -64,7 +66,36 @@ select json_build_object(
 '@
  $inventoryRaw=(docker exec $container psql -h /tmp -U agentdesk_bootstrap -d agentdesk_restore -At -v ON_ERROR_STOP=1 -c $sql|Out-String);if($LASTEXITCODE-ne 0-or[string]::IsNullOrWhiteSpace($inventoryRaw)){throw 'Sanitized restored inventory query failed.'};$inventory=$inventoryRaw.Trim();if($inventory-notmatch'^\{'){throw 'Sanitized restored inventory output was invalid.'}
  $fk=(docker exec $container psql -h /tmp -U agentdesk_bootstrap -d agentdesk_restore -At -v ON_ERROR_STOP=1 -c "select count(*) from pg_constraint c join pg_namespace n on n.oid=c.connamespace where n.nspname in ('auth','public','storage') and c.contype='f';").Trim();if($LASTEXITCODE-ne 0){throw 'Constraint consistency check failed.'}
- $evidence=[ordered]@{result='PASS';project_ref='cdynahtkwtcinjzmxjcs';backup_id=$manifest.backup_id;image=$Image;network='none';logging='none';memory_bytes=2147483648;memory_swap_bytes=2147483648;host_mounts=0;persistent_volumes=0;tmpfs=@('/backup','/var/lib/postgresql/data','/tmp');plaintext_host_artifacts=$false;archive_sha256=$plainHash;inventory=($inventory|ConvertFrom-Json);foreign_key_constraints=[int]$fk;grantor_provenance='normalized_in_disposable_restore_only';completed_utc=[DateTime]::UtcNow.ToString('o')}
+ $rehearsal=$null
+ if($RehearseMigrations){
+  $files=@(Get-ChildItem -LiteralPath $MigrationRoot -Filter '*.sql' -File|Sort-Object Name);if($files.Count-ne 13){throw "Expected 13 migrations, found $($files.Count)."}
+  $hashes=@();foreach($file in $files){$raw=[IO.File]::ReadAllText($file.FullName);$lf=$raw.Replace("`r`n","`n").Replace("`r","`n");$bytes=[Text.Encoding]::UTF8.GetBytes($lf);$sha=[Security.Cryptography.SHA256]::Create();try{$value=([BitConverter]::ToString($sha.ComputeHash($bytes))).Replace('-','')}finally{$sha.Dispose()};$hashes+=[ordered]@{migration=$file.Name;lf_sha256=$value}}
+  $firstFiveSql=@"
+select
+(to_regclass('public.business_profiles') is not null and to_regclass('public.usage_limits') is not null),
+(exists(select 1 from information_schema.columns where table_schema='public' and table_name='agent_settings' and column_name='allowed_domains')),
+(to_regclass('agentdesk_private.chat_rate_buckets') is not null and to_regprocedure('public.check_chat_rate_limit(uuid,text,integer,integer)') is not null),
+(to_regclass('public.subscription_plans') is not null and to_regprocedure('public.billing_process_verified_event(text,text,text,text,text,text,text,text,timestamp with time zone)') is not null),
+(to_regclass('public.chat_attachments') is not null and exists(select 1 from storage.buckets where id='chat-attachments'));
+"@
+  $firstFive=((& docker exec $container psql -h /tmp -U agentdesk_bootstrap -d agentdesk_restore -At -F '|' -v ON_ERROR_STOP=1 -c $firstFiveSql).Trim()-split'\|');if($LASTEXITCODE-ne 0-or$firstFive.Count-ne 5-or@($firstFive|Where-Object{$_-ne't'}).Count){throw 'First-five schema equivalence sentinels failed.'}
+  docker exec $container mkdir -p /backup/migrations;if($LASTEXITCODE-ne 0){throw 'RAM migration directory creation failed.'}
+  $pending=@($files|Select-Object -Skip 5);foreach($file in $pending){docker cp $file.FullName "$container`:/backup/migrations/$($file.Name)"|Out-Null;if($LASTEXITCODE-ne 0){throw "Migration copy to tmpfs failed: $($file.Name)"}}
+  $rowSql="select coalesce(sum((xpath('/row/c/text()',query_to_xml(format('select count(*) c from %I.%I',n.nspname,c.relname),false,true,'')))[1]::text::bigint),0) from pg_class c join pg_namespace n on n.oid=c.relnamespace where n.nspname in ('auth','public','storage','agentdesk_private') and c.relkind in ('r','p');"
+  $beforeRows=[int64]((& docker exec $container psql -h /tmp -U agentdesk_bootstrap -d agentdesk_restore -At -v ON_ERROR_STOP=1 -c $rowSql).Trim());if($LASTEXITCODE-ne 0){throw 'Pre-migration aggregate row count failed.'}
+  $results=@();foreach($file in $pending){
+   $path="/backup/migrations/$($file.Name)";$first=(& docker exec $container psql -h /tmp -U agentdesk_bootstrap -d agentdesk_restore --no-psqlrc -v ON_ERROR_STOP=1 -f $path 2>&1|Out-String);$firstExit=$LASTEXITCODE
+   if($firstExit-ne 0){$results+=[ordered]@{migration=$file.Name;first_apply='FAIL';second_apply='NOT_RUN';idempotent=$false;error=($first.Trim()-split'\r?\n'|Select-Object -Last 1)};throw "Pending migration failed: $($file.Name)"}
+   $second=(& docker exec $container psql -h /tmp -U agentdesk_bootstrap -d agentdesk_restore --no-psqlrc -v ON_ERROR_STOP=1 -f $path 2>&1|Out-String);$secondExit=$LASTEXITCODE
+   $results+=[ordered]@{migration=$file.Name;first_apply='PASS';second_apply=$(if($secondExit-eq 0){'PASS'}else{'FAIL'});idempotent=($secondExit-eq 0);error=$(if($secondExit-ne 0){($second.Trim()-split'\r?\n'|Select-Object -Last 1)}else{$null})}
+  }
+  $afterRows=[int64]((& docker exec $container psql -h /tmp -U agentdesk_bootstrap -d agentdesk_restore -At -v ON_ERROR_STOP=1 -c $rowSql).Trim());if($LASTEXITCODE-ne 0-or$afterRows-lt$beforeRows){throw 'Post-migration aggregate row preservation failed.'}
+  $securityJson=(& docker exec $container psql -h /tmp -U agentdesk_bootstrap -d agentdesk_restore -At -v ON_ERROR_STOP=1 -c "select json_build_object('ai_config',to_regclass('public.ai_credit_control_config') is not null,'ai_private_ledger',to_regclass('agentdesk_private.ai_credit_ledger') is not null,'provider_enabled',(select provider_enabled from public.ai_credit_control_config where id=true),'emergency_shutdown',(select emergency_shutdown from public.ai_credit_control_config where id=true),'nowpayments_orders',to_regclass('public.nowpayments_payment_orders') is not null,'nowpayments_ipn',to_regprocedure('public.billing_process_nowpayments_ipn(uuid,text,text,numeric,text,timestamp with time zone)') is not null,'policies',(select count(*) from pg_policies where schemaname in ('public','agentdesk_private')),'ledger_present',to_regclass('supabase_migrations.schema_migrations') is not null);").Trim();if($LASTEXITCODE-ne 0-or$securityJson-notmatch'^\{'){throw 'Post-migration security sentinel query failed.'}
+  $allIdempotent=(@($results|Where-Object{-not$_.idempotent}).Count-eq 0)
+  $rehearsal=[ordered]@{result=$(if($results.Count-eq 8-and$allIdempotent){'PASS'}else{'FAIL'});first_five_schema_equivalent=$true;first_five_history='AMBIGUOUS_LEDGER_ABSENT';approved_lf_hashes=$hashes;pending_migrations=$results;rows_before=$beforeRows;rows_after=$afterRows;existing_rows_preserved=($afterRows-ge$beforeRows);security=($securityJson|ConvertFrom-Json);ledger_writes_performed=$false;host_mounts=0;migration_files_copied_to_tmpfs=$true}
+  $rehearsal|ConvertTo-Json -Depth 8|Set-Content -LiteralPath (Join-Path $backup 'production-migration-rehearsal-evidence.json') -Encoding utf8
+ }
+ $evidence=[ordered]@{result='PASS';project_ref='cdynahtkwtcinjzmxjcs';backup_id=$manifest.backup_id;image=$Image;network='none';logging='none';memory_bytes=2147483648;memory_swap_bytes=2147483648;host_mounts=0;persistent_volumes=0;tmpfs=@('/backup','/var/lib/postgresql/data','/tmp');plaintext_host_artifacts=$false;archive_sha256=$plainHash;inventory=($inventory|ConvertFrom-Json);foreign_key_constraints=[int]$fk;grantor_provenance='normalized_in_disposable_restore_only';migration_rehearsal=$rehearsal;completed_utc=[DateTime]::UtcNow.ToString('o')}
  $evidence|ConvertTo-Json -Depth 6|Set-Content -LiteralPath (Join-Path $backup 'ram-only-restore-evidence.json') -Encoding utf8
  Write-Host 'PRODUCTION RAM-ONLY ISOLATED RESTORE: PASS' -ForegroundColor Green;$evidence
 }finally{$identityText=$null;if($started){docker rm -f $container 1>$null};$remaining=@(docker ps -a --filter "name=$container" -q);if($remaining.Count){throw 'Disposable restore container cleanup failed.'}}
