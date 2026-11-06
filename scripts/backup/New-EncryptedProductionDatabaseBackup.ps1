@@ -54,6 +54,17 @@ try{if($cert.GetCertHashString([Security.Cryptography.HashAlgorithmName]::SHA256
 
 $urlSecure=Read-Host 'Paste the copied password-free PRODUCTION Session Pooler URI (hidden)' -AsSecureString
 $databaseUrl=ConvertFrom-LocalSecureString $urlSecure;$urlSecure.Dispose()
+# Supabase may copy a URI containing a placeholder or an embedded password.
+# Discard it before validation; the separate hidden prompt is the only
+# authentication value passed to pg_dump.
+$copiedUri=[Uri]$databaseUrl
+if($copiedUri.UserInfo -match ':'){
+    $sanitizedBuilder=[UriBuilder]$copiedUri
+    $sanitizedBuilder.UserName=[Uri]::UnescapeDataString(($copiedUri.UserInfo -split ':',2)[0])
+    $sanitizedBuilder.Password=''
+    $databaseUrl=$sanitizedBuilder.Uri.AbsoluteUri
+    $sanitizedBuilder=$null;$copiedUri=$null
+}
 Assert-ProductionConnection $databaseUrl
 $uri=[Uri]$databaseUrl;if($uri.Port-ne 5432){throw 'Production Session Pooler must use port 5432.'}
 $builder=[UriBuilder]$uri;$query=@($uri.Query.TrimStart('?')-split'&'|Where-Object{$_ -and $_ -notmatch '^(?i:sslmode|sslrootcert)='})
