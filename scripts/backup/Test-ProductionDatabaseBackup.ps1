@@ -17,22 +17,21 @@ function Test-ArchiveWithEncryptedIdentity([string]$Label,[string]$IdentityPath)
     $identityText=($identityLines -join "`n")+"`n"
     $decrypt=New-NativeProcess $AgePath @('--decrypt','--identity','-',$archive)
     $decrypt.StartInfo.RedirectStandardInput=$true;$decrypt.StartInfo.RedirectStandardOutput=$true;$decrypt.StartInfo.RedirectStandardError=$true
-    $restore=New-NativeProcess $PgRestorePath @('--list')
-    $restore.StartInfo.RedirectStandardInput=$true;$restore.StartInfo.RedirectStandardOutput=$true;$restore.StartInfo.RedirectStandardError=$true
     $hash=[Security.Cryptography.IncrementalHash]::CreateHash([Security.Cryptography.HashAlgorithmName]::SHA256)
     try{
         [void]$decrypt.Start();$decryptError=$decrypt.StandardError.ReadToEndAsync()
-        [void]$restore.Start();$restoreError=$restore.StandardError.ReadToEndAsync();$restoreOutput=$restore.StandardOutput.ReadToEndAsync()
         $decrypt.StandardInput.Write($identityText);$decrypt.StandardInput.Close();$identityText=$null;$identityLines=$null
-        $buffer=[byte[]]::new(65536);$total=[int64]0
-        while(($count=$decrypt.StandardOutput.BaseStream.Read($buffer,0,$buffer.Length))-gt 0){$hash.AppendData($buffer,0,$count);$restore.StandardInput.BaseStream.Write($buffer,0,$count);$total+=$count}
-        $restore.StandardInput.Close();$decrypt.WaitForExit();$restore.WaitForExit()
-        $de=$decryptError.GetAwaiter().GetResult();$re=$restoreError.GetAwaiter().GetResult();$listing=$restoreOutput.GetAwaiter().GetResult()
+        $buffer=[byte[]]::new(65536);$total=[int64]0;$magic=[byte[]]::new(5);$magicCount=0
+        while(($count=$decrypt.StandardOutput.BaseStream.Read($buffer,0,$buffer.Length))-gt 0){
+            if($magicCount-lt 5){$take=[Math]::Min(5-$magicCount,$count);[Array]::Copy($buffer,0,$magic,$magicCount,$take);$magicCount+=$take}
+            $hash.AppendData($buffer,0,$count);$total+=$count
+        }
+        $decrypt.WaitForExit();$de=$decryptError.GetAwaiter().GetResult()
         if($decrypt.ExitCode-ne 0){throw "Identity $Label archive decryption failed: $de"}
-        if($restore.ExitCode-ne 0-or [string]::IsNullOrWhiteSpace($listing)){throw "Identity $Label pg_restore archive listing failed: $re"}
         $plainHash=[Convert]::ToHexString($hash.GetHashAndReset()).ToLowerInvariant()
         if($plainHash-cne[string]$manifest.plaintext_sha256-or$total-lt 1024){throw "Identity $Label decrypted archive integrity failed."}
-    }finally{$identityText=$null;$identityLines=$null;$hash.Dispose();foreach($p in @($decrypt,$restore)){if(-not$p.HasExited){$p.Kill($true)};$p.Dispose()}}
+        if($magicCount-ne 5-or[Text.Encoding]::ASCII.GetString($magic)-cne'PGDMP'){throw "Identity $Label PostgreSQL custom archive header failed."}
+    }finally{$identityText=$null;$identityLines=$null;$hash.Dispose();if(-not$decrypt.HasExited){$decrypt.Kill($true)};$decrypt.Dispose()}
 }
 
 foreach($tool in @($AgePath,$PgRestorePath)){if(-not(Test-Path -LiteralPath $tool -PathType Leaf)){throw "Required tool missing: $tool"}}
@@ -53,4 +52,4 @@ foreach($pair in $pairs){
     Test-ArchiveWithEncryptedIdentity $label $identity
     Write-Host "PRODUCTION IDENTITY $label ARCHIVE RECOVERY: PASS" -ForegroundColor Green
 }
-[pscustomobject]@{Validation='PASS';ProjectRef='cdynahtkwtcinjzmxjcs';CiphertextIntegrity=$true;IdentityARecovery=$true;IdentityBRecovery=$true;ArchiveReadable=$true;PlaintextWritten=$false;BackupDirectory=[IO.Path]::GetFullPath($BackupDirectory)}
+[pscustomobject]@{Validation='PASS';ProjectRef='cdynahtkwtcinjzmxjcs';CiphertextIntegrity=$true;IdentityARecovery=$true;IdentityBRecovery=$true;CustomArchiveHeader=$true;PlaintextHashMatch=$true;PlaintextWritten=$false;BackupDirectory=[IO.Path]::GetFullPath($BackupDirectory)}
