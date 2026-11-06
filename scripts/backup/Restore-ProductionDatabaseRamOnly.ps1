@@ -11,6 +11,13 @@ Set-StrictMode -Version Latest;$ErrorActionPreference='Stop'
 $expectedImage='public.ecr.aws/supabase/postgres@sha256:6058a6759ab9268cff8ee70641d61f1bd75953316281b76427cf5a6b4db2eafc'
 function Get-Sha([string]$Path){$s=[IO.File]::OpenRead($Path);try{$h=[Security.Cryptography.SHA256]::Create();try{([BitConverter]::ToString($h.ComputeHash($s))).Replace('-','').ToLowerInvariant()}finally{$h.Dispose()}}finally{$s.Dispose()}}
 function New-Proc([string]$Path,[string[]]$Arguments){$i=[Diagnostics.ProcessStartInfo]::new();$i.FileName=$Path;$i.UseShellExecute=$false;$i.CreateNoWindow=$true;foreach($a in $Arguments){[void]$i.ArgumentList.Add($a)};$p=[Diagnostics.Process]::new();$p.StartInfo=$i;$p}
+function Copy-FileToContainerTmpfs([string]$Container,[string]$Source,[string]$Destination){
+ if($Destination-notmatch'^/backup/migrations/[0-9_]+[a-z0-9_]*\.sql$'){throw 'Unsafe tmpfs migration destination.'}
+ $p=New-Proc 'docker' @('exec','-i',$Container,'sh','-c',"cat > '$Destination'");$p.StartInfo.RedirectStandardInput=$true;$p.StartInfo.RedirectStandardOutput=$true;$p.StartInfo.RedirectStandardError=$true
+ $sourceStream=[IO.File]::OpenRead($Source)
+ try{[void]$p.Start();$errorTask=$p.StandardError.ReadToEndAsync();$outputTask=$p.StandardOutput.ReadToEndAsync();$sourceStream.CopyTo($p.StandardInput.BaseStream);$p.StandardInput.Close();$p.WaitForExit();$message=$errorTask.GetAwaiter().GetResult();$null=$outputTask.GetAwaiter().GetResult();if($p.ExitCode-ne 0){throw "Migration stream to tmpfs failed: $message"}}
+ finally{$sourceStream.Dispose();if(-not$p.HasExited){$p.Kill($true)};$p.Dispose()}
+}
 if($Image-cne$expectedImage){throw 'Pinned Supabase image mismatch.'}
 $backup=[IO.Path]::GetFullPath($BackupDirectory);$manifest=Get-Content -LiteralPath (Join-Path $backup 'manifest.json') -Raw|ConvertFrom-Json
 if($manifest.project_ref-cne'cdynahtkwtcinjzmxjcs'-or$manifest.status-cne'complete'-or-not$manifest.source_read_only-or-not$manifest.tls_verify_full-or$manifest.plaintext_written_to_disk){throw 'Approved production backup manifest gate failed.'}
@@ -80,7 +87,7 @@ select
 "@
   $firstFive=((& docker exec $container psql -h /tmp -U agentdesk_bootstrap -d agentdesk_restore -At -F '|' -v ON_ERROR_STOP=1 -c $firstFiveSql).Trim()-split'\|');if($LASTEXITCODE-ne 0-or$firstFive.Count-ne 5-or@($firstFive|Where-Object{$_-ne't'}).Count){throw 'First-five schema equivalence sentinels failed.'}
   docker exec $container mkdir -p /backup/migrations;if($LASTEXITCODE-ne 0){throw 'RAM migration directory creation failed.'}
-  $pending=@($files|Select-Object -Skip 5);foreach($file in $pending){docker cp $file.FullName "$container`:/backup/migrations/$($file.Name)"|Out-Null;if($LASTEXITCODE-ne 0){throw "Migration copy to tmpfs failed: $($file.Name)"}}
+  $pending=@($files|Select-Object -Skip 5);foreach($file in $pending){Copy-FileToContainerTmpfs $container $file.FullName "/backup/migrations/$($file.Name)"}
   $rowSql="select coalesce(sum((xpath('/row/c/text()',query_to_xml(format('select count(*) c from %I.%I',n.nspname,c.relname),false,true,'')))[1]::text::bigint),0) from pg_class c join pg_namespace n on n.oid=c.relnamespace where n.nspname in ('auth','public','storage','agentdesk_private') and c.relkind in ('r','p');"
   $beforeRows=[int64]((& docker exec $container psql -h /tmp -U agentdesk_bootstrap -d agentdesk_restore -At -v ON_ERROR_STOP=1 -c $rowSql).Trim());if($LASTEXITCODE-ne 0){throw 'Pre-migration aggregate row count failed.'}
   $results=@();foreach($file in $pending){

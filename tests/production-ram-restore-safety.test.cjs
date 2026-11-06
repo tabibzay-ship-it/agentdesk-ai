@@ -19,5 +19,6 @@ test('migration rehearsal applies only the eight pending files inside tmpfs',()=
  assert.match(text,/Select-Object -Skip 5/);assert.match(text,/\$results\.Count-eq 8/);
  assert.match(text,/first_five_schema_equivalent=\$true/);assert.match(text,/AMBIGUOUS_LEDGER_ABSENT/);
  assert.match(text,/ledger_writes_performed=\$false/);assert.match(text,/migration_files_copied_to_tmpfs=\$true/);
+ assert.match(text,/Copy-FileToContainerTmpfs/);assert.doesNotMatch(text,/docker cp/);
  assert.match(text,/emergency_shutdown/);assert.match(text,/billing_process_nowpayments_ipn/);
 });
