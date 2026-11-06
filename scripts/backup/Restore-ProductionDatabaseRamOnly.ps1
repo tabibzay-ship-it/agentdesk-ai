@@ -61,7 +61,7 @@ select json_build_object(
 'extensions',(select json_agg(extname order by extname) from pg_extension),
 'total_rows',(select sum((xpath('/row/c/text()',query_to_xml(format('select count(*) c from %I.%I',n.nspname,c.relname),false,true,'')))[1]::text::bigint) from pg_class c join pg_namespace n on n.oid=c.relnamespace where n.nspname in ('auth','public','storage') and c.relkind in ('r','p')),
 'ledger_present',(to_regclass('supabase_migrations.schema_migrations') is not null));
-'@ 
+'@
  $inventory=(docker exec $container psql -h /tmp -U agentdesk_bootstrap -d agentdesk_restore -At -v ON_ERROR_STOP=1 -c $sql).Trim();if($LASTEXITCODE-ne 0-or$inventory-notmatch'^\{'){throw 'Sanitized restored inventory failed.'}
  $fk=(docker exec $container psql -h /tmp -U agentdesk_bootstrap -d agentdesk_restore -At -v ON_ERROR_STOP=1 -c "select count(*) from pg_constraint c join pg_namespace n on n.oid=c.connamespace where n.nspname in ('auth','public','storage') and c.contype='f';").Trim();if($LASTEXITCODE-ne 0){throw 'Constraint consistency check failed.'}
  $evidence=[ordered]@{result='PASS';project_ref='cdynahtkwtcinjzmxjcs';backup_id=$manifest.backup_id;image=$Image;network='none';logging='none';memory_bytes=2147483648;memory_swap_bytes=2147483648;host_mounts=0;persistent_volumes=0;tmpfs=@('/backup','/var/lib/postgresql/data','/tmp');plaintext_host_artifacts=$false;archive_sha256=$plainHash;inventory=($inventory|ConvertFrom-Json);foreign_key_constraints=[int]$fk;grantor_provenance='normalized_in_disposable_restore_only';completed_utc=[DateTime]::UtcNow.ToString('o')}
