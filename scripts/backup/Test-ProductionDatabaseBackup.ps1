@@ -9,6 +9,31 @@ Set-StrictMode -Version Latest
 $ErrorActionPreference='Stop'
 
 function Get-Sha256Hex([string]$Path){$s=[IO.File]::OpenRead($Path);try{$h=[Security.Cryptography.SHA256]::Create();try{([BitConverter]::ToString($h.ComputeHash($s))).Replace('-','').ToLowerInvariant()}finally{$h.Dispose()}}finally{$s.Dispose()}}
+function New-NativeProcess([string]$Path,[string[]]$Arguments){$i=[Diagnostics.ProcessStartInfo]::new();$i.FileName=$Path;$i.UseShellExecute=$false;$i.CreateNoWindow=$true;foreach($a in $Arguments){[void]$i.ArgumentList.Add($a)};$p=[Diagnostics.Process]::new();$p.StartInfo=$i;return $p}
+function Test-ArchiveWithEncryptedIdentity([string]$Label,[string]$IdentityPath){
+    Write-Host "Retrieve Production Identity $Label passphrase. Stars will appear."
+    $identityLines=@(& $AgePath --decrypt $IdentityPath)
+    if($LASTEXITCODE -ne 0 -or $identityLines.Count -lt 2){throw "Identity $Label decryption failed."}
+    $identityText=($identityLines -join "`n")+"`n"
+    $decrypt=New-NativeProcess $AgePath @('--decrypt','--identity','-',$archive)
+    $decrypt.StartInfo.RedirectStandardInput=$true;$decrypt.StartInfo.RedirectStandardOutput=$true;$decrypt.StartInfo.RedirectStandardError=$true
+    $restore=New-NativeProcess $PgRestorePath @('--list')
+    $restore.StartInfo.RedirectStandardInput=$true;$restore.StartInfo.RedirectStandardOutput=$true;$restore.StartInfo.RedirectStandardError=$true
+    $hash=[Security.Cryptography.IncrementalHash]::CreateHash([Security.Cryptography.HashAlgorithmName]::SHA256)
+    try{
+        [void]$decrypt.Start();$decryptError=$decrypt.StandardError.ReadToEndAsync()
+        [void]$restore.Start();$restoreError=$restore.StandardError.ReadToEndAsync();$restoreOutput=$restore.StandardOutput.ReadToEndAsync()
+        $decrypt.StandardInput.Write($identityText);$decrypt.StandardInput.Close();$identityText=$null;$identityLines=$null
+        $buffer=[byte[]]::new(65536);$total=[int64]0
+        while(($count=$decrypt.StandardOutput.BaseStream.Read($buffer,0,$buffer.Length))-gt 0){$hash.AppendData($buffer,0,$count);$restore.StandardInput.BaseStream.Write($buffer,0,$count);$total+=$count}
+        $restore.StandardInput.Close();$decrypt.WaitForExit();$restore.WaitForExit()
+        $de=$decryptError.GetAwaiter().GetResult();$re=$restoreError.GetAwaiter().GetResult();$listing=$restoreOutput.GetAwaiter().GetResult()
+        if($decrypt.ExitCode-ne 0){throw "Identity $Label archive decryption failed: $de"}
+        if($restore.ExitCode-ne 0-or [string]::IsNullOrWhiteSpace($listing)){throw "Identity $Label pg_restore archive listing failed: $re"}
+        $plainHash=[Convert]::ToHexString($hash.GetHashAndReset()).ToLowerInvariant()
+        if($plainHash-cne[string]$manifest.plaintext_sha256-or$total-lt 1024){throw "Identity $Label decrypted archive integrity failed."}
+    }finally{$identityText=$null;$identityLines=$null;$hash.Dispose();foreach($p in @($decrypt,$restore)){if(-not$p.HasExited){$p.Kill($true)};$p.Dispose()}}
+}
 
 foreach($tool in @($AgePath,$PgRestorePath)){if(-not(Test-Path -LiteralPath $tool -PathType Leaf)){throw "Required tool missing: $tool"}}
 if((Get-Command pwsh).Version.Major -lt 7){throw 'PowerShell 7 is required for byte-preserving native pipelines.'}
@@ -25,9 +50,7 @@ $pairs=@([pscustomobject]@{Label='A';Entry=$state.identity_a},[pscustomobject]@{
 foreach($pair in $pairs){
     $label=[string]$pair.Label;$entry=$pair.Entry;$identity=[string]$entry.artifact
     if((Get-Sha256Hex $identity) -cne ([string]$entry.sha256).ToLowerInvariant()){throw "Identity $label integrity failed."}
-    Write-Host "Retrieve Production Identity $label passphrase. Stars will appear."
-    $listing = & $AgePath --decrypt $identity | & $AgePath --decrypt --identity - $archive | & $PgRestorePath --list
-    if($LASTEXITCODE -ne 0 -or @($listing).Count -lt 10){throw "Identity $label archive verification failed."}
+    Test-ArchiveWithEncryptedIdentity $label $identity
     Write-Host "PRODUCTION IDENTITY $label ARCHIVE RECOVERY: PASS" -ForegroundColor Green
 }
 [pscustomobject]@{Validation='PASS';ProjectRef='cdynahtkwtcinjzmxjcs';CiphertextIntegrity=$true;IdentityARecovery=$true;IdentityBRecovery=$true;ArchiveReadable=$true;PlaintextWritten=$false;BackupDirectory=[IO.Path]::GetFullPath($BackupDirectory)}
