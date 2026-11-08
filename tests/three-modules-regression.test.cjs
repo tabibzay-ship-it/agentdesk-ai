@@ -7,11 +7,17 @@ const { test } = require("node:test");
 const root = path.resolve(__dirname, "..");
 const source = (relative) => fs.readFileSync(path.join(root, relative), "utf8");
 
-test("knowledge management scopes every database mutation to the authenticated owner", () => {
+test("knowledge management routes privileged mutations through an authenticated owner-scoped API", () => {
   const page = source("app/knowledge/page.tsx");
+  const api = source("app/api/knowledge/route.ts");
   assert.match(page, /from\("knowledge_sources"\)[\s\S]*?\.eq\("user_id",auth\.user\.id\)/);
-  assert.match(page, /\.update\([\s\S]*?\.eq\("id",editingId\)\.eq\("user_id",auth\.user\.id\)/);
-  assert.match(page, /\.delete\(\)\.eq\("id",source\.id\)\.eq\("user_id",auth\.user\.id\)/);
+  assert.match(page, /fetch\("\/api\/knowledge",\{method:"PATCH"/);
+  assert.match(page, /fetch\(`\/api\/knowledge\?id=/);
+  assert.doesNotMatch(page, /from\("knowledge_sources"\)\.delete\(\)/);
+  assert.match(api, /accountApi\(request\)/);
+  assert.match(api, /\.update\([\s\S]*?\.eq\("id", id\)\.eq\("user_id", auth\.user\.id\)/);
+  assert.match(api, /\.delete\(\)\.eq\("id", id\)\.eq\("user_id", auth\.user\.id\)/);
+  assert.match(api, /Source not found/);
   assert.match(page, /window\.confirm\(t\.confirm\)/);
   assert.match(page, /submitting\.current/);
 });
