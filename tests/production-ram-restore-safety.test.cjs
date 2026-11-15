@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-require-imports -- CommonJS Node test harness. */
 const test=require('node:test');const assert=require('node:assert/strict');const fs=require('node:fs');
 const text=fs.readFileSync('scripts/backup/Restore-ProductionDatabaseRamOnly.ps1','utf8');
 test('production restore is isolated and RAM-only',()=>{
