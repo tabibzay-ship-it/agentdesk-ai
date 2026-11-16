@@ -10,9 +10,9 @@ payment activation.
 | Item | Value |
 | --- | --- |
 | Branch | `codex/application-readiness` |
-| Local HEAD | `8c23dc2` (feat(billing): add secure NOWPayments integration) |
-| Remote HEAD | `5bf0b59` — local is 1 commit ahead, **not pushed** |
-| Working tree | 25 modified + 31 untracked files (614 insertions, 102 deletions) |
+| Local HEAD | `e49043c` (docs: add verified release acceptance checklist) |
+| Remote HEAD | `e49043c` — pushed; PR #2 head updated |
+| Working tree | clean (ignored local artifacts only) |
 | Migrations present | 13 (`20261006000000` … `20261018000000`) |
 
 ## A. Locally achievable engineering — verified PASS
@@ -50,6 +50,29 @@ payment activation.
 | 24 | Monitoring / incident owner | Owner action, outside the repository | BLOCKED |
 | 25 | Legal review (privacy/terms accuracy) | Needs operator legal identity + jurisdiction review | UNVERIFIED |
 
+## Production evidence audit (2026-11-17)
+
+These checks ran read-only against real production endpoints.
+
+| Check | Result | Status |
+| --- | --- | --- |
+| `getagentdeskai.com` homepage | HTTP 200; CSP, HSTS, nosniff, Referrer-Policy, Permissions-Policy, frame-ancestors none | VERIFIED PASS |
+| `/login` | HTTP 200 | VERIFIED PASS |
+| `/privacy`, `/terms` | HTTP 404 (both are emitted by the current build) | FAIL — stale deploy |
+| `/robots.txt`, `/sitemap.xml` | HTTP 404 (both are emitted by the current build) | FAIL — stale deploy |
+| Homepage `Age` header | ~2,993,715 s (~34.6 days) | FAIL — stale deploy |
+| Production Supabase host `cdynahtkwtcinjzmxjcs.supabase.co` | DNS `NXDOMAIN` via dns.google (Status 3), while `getagentdeskai.com` resolves | **BLOCKED — project unreachable** |
+| Production backup `20261107-212430Z` | `manifest_version: 1`; only `production-database.custom.age` (no Storage, no roles/schema/data split); current validator rejects it | FAIL — evidence not valid for current gate |
+| GitHub PR #2 | open, `mergeable: true`, `mergeable_state: clean` | PASS (state only) |
+| `main` branch protection | `git push --dry-run origin HEAD:main` would succeed | FAIL — no protection detected |
+| OpenAI credential in `.env.local` | `GET /v1/models` → HTTP 401 | BLOCKED — credential invalid |
+| Netlify / GitHub API tokens | `NETLIFY_AUTH_TOKEN`, `GITHUB_TOKEN` unset; `gh` absent | BLOCKED |
+
+Consequence: the live site is a stale build whose configured backend no longer
+resolves. Deploying, migrating, or taking a fresh backup against it was not
+attempted, because every one of those actions would either target a missing
+database or publish a build that cannot authenticate users.
+
 ## Scores
 
 - **A. Locally achievable engineering completion:** 9 / 12 = **75 %**
@@ -72,16 +95,20 @@ staying off.
 
 ## Owner actions required
 
-1. Approve and perform the release commit (and push) of the verified working
-   tree, or ask for a scoped subset.
-2. Provide production database credentials for migration reconciliation, or
-   approve running it through the Supabase dashboard.
-3. Provide/confirm Netlify access to verify env vars and deploy the exact SHA.
-4. Decide on payment provider activation (NOWPayments merchant status).
-5. Authorize one quota-bounded AI request with a production key.
-6. Confirm Brevo sender/domain and run one approved recovery-email test.
+1. **Restore or recreate the production Supabase project** `cdynahtkwtcinjzmxjcs`
+   (or confirm a replacement ref) and update the Netlify environment. Until the
+   host resolves, no production gate can be met.
+2. Provide a valid `OPENAI_API_KEY`; the current one returns 401.
+3. Re-run a fresh production backup with the current manifest-v2 tooling
+   (including Storage); the 2026-11-07 backups predate it and contain no Storage
+   coverage.
+4. Provide Netlify access (auth token) to deploy the exact approved SHA, or
+   authorize a deploy through the Netlify UI.
+5. Provide a GitHub token (or approve the merge in the GitHub UI) to merge PR #2;
+   enable branch protection on `main` while doing so.
+6. Confirm the payment provider decision (NOWPayments stays disabled).
 7. Install portable PostgreSQL 17 or start Docker to complete the encrypted
-   PostgreSQL backup/restore verification.
+   PostgreSQL backup/restore verification locally.
 8. Name the incident owner and monitoring destination.
 
 ## Housekeeping
