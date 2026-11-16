@@ -4,7 +4,7 @@ export type CheckoutRequest = {
   userId: string;
   planCode: Exclude<BillingPlanCode, "free">;
   returnUrl: string;
-  autoRenew: true;
+  autoRenew: boolean;
   billingPeriod: "monthly";
   renewal?: boolean;
 };

@@ -1,5 +1,6 @@
+import { resolveBillingReturnUrl } from "@/lib/billing-checkout";
 import { authenticateBillingRequest, billingJson } from "@/lib/billing-server";
-import { getPaymentProvider, isApprovedPaymentRedirect, PaymentProviderUnavailableError } from "@/lib/payments/provider";
+import { getPaymentProvider, isApprovedPaymentRedirect, PaymentProviderUnavailableError, supportsProviderManagedBilling } from "@/lib/payments/provider";
 import { BodyError, readJsonObject } from "@/lib/request-security";
 
 export const runtime = "nodejs";
@@ -12,7 +13,7 @@ export async function GET(request: Request) {
     .select("id,brand,last4,exp_month,exp_year,is_default,status,created_at")
     .eq("user_id", authentication.user.id).eq("status", "active").order("created_at", { ascending: false });
   if (error) return billingJson({ error: "Payment methods are unavailable until the local migration is applied.", code: "BILLING_MIGRATION_REQUIRED" }, 503);
-  return billingJson({ paymentMethods: data ?? [], setupAvailable: getPaymentProvider().configured });
+  return billingJson({ paymentMethods: data ?? [], setupAvailable: supportsProviderManagedBilling(getPaymentProvider()) });
 }
 
 export async function POST(request: Request) {
@@ -21,6 +22,7 @@ export async function POST(request: Request) {
     if ("response" in authentication) return authentication.response;
     const provider = getPaymentProvider();
     if (!provider.configured) return billingJson({ error: "Secure payment-method setup is not configured.", code: "PAYMENT_PROVIDER_UNAVAILABLE" }, 503);
+    if (!supportsProviderManagedBilling(provider)) return billingJson({ error: "The configured provider does not store reusable payment methods.", code: "PAYMENT_METHODS_UNSUPPORTED" }, 503);
     const body = await readJsonObject(request, 2048);
     const replaceId = typeof body.replacePaymentMethodId === "string" ? body.replacePaymentMethodId : undefined;
     let replaceReference: string | undefined;
@@ -32,7 +34,7 @@ export async function POST(request: Request) {
       replaceReference = data.provider_payment_method_ref;
     }
     const setup = await provider.createPaymentMethodSetup({ userId: authentication.user.id,
-      returnUrl: new URL("/billing", request.url).href, replacePaymentMethodReference: replaceReference });
+      returnUrl: resolveBillingReturnUrl(request.url, process.env.AGENTDESK_APP_ORIGIN), replacePaymentMethodReference: replaceReference });
     if (!isApprovedPaymentRedirect(provider, setup.setupUrl)) {
       return billingJson({ error: "Unsafe provider URL.", code: "UNSAFE_PROVIDER_URL" }, 502);
     }
@@ -50,6 +52,7 @@ export async function DELETE(request: Request) {
     if ("response" in authentication) return authentication.response;
     const provider = getPaymentProvider();
     if (!provider.configured) return billingJson({ error: "Payment-method removal is not configured.", code: "PAYMENT_PROVIDER_UNAVAILABLE" }, 503);
+    if (!supportsProviderManagedBilling(provider)) return billingJson({ error: "The configured provider does not store reusable payment methods.", code: "PAYMENT_METHODS_UNSUPPORTED" }, 503);
     const body = await readJsonObject(request, 1024);
     if (typeof body.paymentMethodId !== "string" || !uuid.test(body.paymentMethodId))
       return billingJson({ error: "Invalid payment method.", code: "INVALID_PAYMENT_METHOD" }, 400);

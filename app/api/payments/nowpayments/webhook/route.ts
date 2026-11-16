@@ -1,5 +1,6 @@
 import { billingJson, createBillingAdminClient } from "@/lib/billing-server";
 import { verifyNowPaymentsSignature } from "@/lib/payments/nowpayments";
+import { BodyError, readJsonObject } from "@/lib/request-security";
 
 export const runtime = "nodejs";
 
@@ -11,13 +12,17 @@ export async function POST(request: Request) {
   if (process.env.NOWPAYMENTS_ENABLED !== "true" || !secret) {
     return billingJson({ error: "NOWPayments is not configured.", code: "PAYMENT_PROVIDER_UNAVAILABLE" }, 503);
   }
-  const rawBody = await request.text();
-  if (new TextEncoder().encode(rawBody).byteLength > MAX_BODY_BYTES) {
-    return billingJson({ error: "Webhook payload is too large.", code: "PAYLOAD_TOO_LARGE" }, 413);
-  }
   let payload: Record<string, unknown>;
-  try { payload = JSON.parse(rawBody); }
-  catch { return billingJson({ error: "Invalid webhook payload.", code: "INVALID_WEBHOOK" }, 400); }
+  try { payload = await readJsonObject(request, MAX_BODY_BYTES); }
+  catch (error) {
+    if (error instanceof BodyError) {
+      return billingJson({
+        error: error.status === 413 ? "Webhook payload is too large." : "Invalid webhook payload.",
+        code: error.status === 413 ? "PAYLOAD_TOO_LARGE" : "INVALID_WEBHOOK",
+      }, error.status);
+    }
+    return billingJson({ error: "Invalid webhook payload.", code: "INVALID_WEBHOOK" }, 400);
+  }
   if (!verifyNowPaymentsSignature(payload, request.headers.get("x-nowpayments-sig"), secret)) {
     return billingJson({ error: "Invalid webhook signature.", code: "INVALID_WEBHOOK" }, 401);
   }

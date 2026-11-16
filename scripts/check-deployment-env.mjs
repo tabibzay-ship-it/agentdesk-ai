@@ -51,6 +51,10 @@ if (process.env.NOWPAYMENTS_API_ORIGIN) {
     console.error("Production NOWPAYMENTS_API_ORIGIN must use the production NOWPayments API.");
     process.exit(1);
   }
+  if (process.env.CONTEXT === "deploy-preview" && process.env.NOWPAYMENTS_API_ORIGIN !== "https://api.sandbox.nowpayments.io") {
+    console.error("Deploy Preview NOWPAYMENTS_API_ORIGIN must use the NOWPayments sandbox API.");
+    process.exit(1);
+  }
 }
 
 for (const [name, value] of [
@@ -75,6 +79,14 @@ if (
   new URL(process.env.NEXT_PUBLIC_SUPABASE_URL).origin !== productionSupabaseOrigin
 ) {
   console.error("Production NEXT_PUBLIC_SUPABASE_URL must use the approved AgentDesk AI Supabase project.");
+  process.exit(1);
+}
+
+if (
+  process.env.CONTEXT === "deploy-preview" &&
+  new URL(process.env.NEXT_PUBLIC_SUPABASE_URL).origin === productionSupabaseOrigin
+) {
+  console.error("Deploy Preview must never use the production AgentDesk AI Supabase project.");
   process.exit(1);
 }
 

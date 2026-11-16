@@ -1,7 +1,10 @@
 import { execFileSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 
-const files = execFileSync("git", ["ls-files", "--cached", "--others", "--exclude-standard"], { encoding: "utf8" })
+const files = execFileSync("git", ["ls-files", "--cached", "--others", "--exclude-standard"], {
+  encoding: "utf8",
+  maxBuffer: 16 * 1024 * 1024,
+})
   .split(/\r?\n/)
   .filter(Boolean)
   .filter((file) => !/(^|\/)(package-lock\.json|test-results|theme-backup-)/.test(file));

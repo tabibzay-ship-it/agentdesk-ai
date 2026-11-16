@@ -28,10 +28,21 @@ callback secret or callback environment variable. Production resolves to:
 
 ## Create separate sandbox credentials
 
-1. Open the official NOWPayments sandbox, not the production dashboard.
-2. Create a sandbox-only merchant account using the owner's approved address.
-3. In sandbox Store/Payment settings, generate a sandbox API key.
-4. Generate a separate sandbox IPN secret. Save it once in the approved password
+According to the official NOWPayments API and sandbox guides, sandbox testing
+does not require sending real funds and integration/setup itself has no extra
+cost. Account verification remains provider-controlled: NOWPayments says it
+generally does not request KYB for crypto-to-crypto use, but its terms allow
+KYC/KYB or due-diligence requests. Therefore setup without KYC is possible but
+cannot be guaranteed in advance.
+
+1. Open `https://sandbox.nowpayments.io`, not the production dashboard, and
+   create a separate merchant login. Confirm its email if requested.
+2. Add sandbox wallet information required by the dashboard. Do not reuse or
+   change the production merchant wallet/account.
+3. Open the sandbox Payments API integration (or Store/Payment settings in the
+   older dashboard) and generate a sandbox API key.
+4. Generate a separate sandbox IPN secret and configure the exact Deploy Preview
+   callback URL `/api/payments/nowpayments/webhook`. Save the secret in the approved password
    manager; do not copy it into project files or messages.
 5. Configure the Deploy Preview variables above with preview-only scope.
 6. Keep `NOWPAYMENTS_ENABLED=false` for the first preview deployment.
@@ -39,6 +50,13 @@ callback secret or callback environment variable. Production resolves to:
 8. Apply `20261018000000_nowpayments.sql` only to the disposable sandbox database.
 9. After explicit approval, set the preview flag to `true` and create one emulated
    sandbox invoice. Never reuse sandbox secrets or records in production.
+
+Official references:
+
+- `https://documenter.getpostman.com/view/7907941/S1a32n38`
+- `https://nowpayments.io/api`
+- `https://nowpayments.io/help`
+- `https://nowpayments.io/blog/how-to-set-up-nowpayments-integrations`
 
 ## Preview acceptance checks
 

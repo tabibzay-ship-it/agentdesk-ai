@@ -46,6 +46,11 @@ yarn-error.log*
 
 # local release-review artifacts (preserved locally, excluded from releases)
 /theme-backup-*/
+/.recovery-tools/
+/.tmp-e2e/
+/Reasonix-Test/
+/tmpayfsgh0h/
+/debug.log
 *.backup-*
 *.before-*
 *.encoding-backup

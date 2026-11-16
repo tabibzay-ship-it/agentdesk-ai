@@ -29,6 +29,15 @@ export function getPaymentProvider(): PaymentProvider {
   return disabledProvider;
 }
 
+/**
+ * Providers that can store payment methods and cancel a subscription on the
+ * server. NOWPayments is customer-initiated only: every renewal is a new
+ * invoice, and it never stores a reusable payment method.
+ */
+export function supportsProviderManagedBilling(provider: PaymentProvider): boolean {
+  return provider.configured && provider.name !== "nowpayments";
+}
+
 export function isApprovedPaymentRedirect(provider: PaymentProvider, value: string): boolean {
   try {
     const url = new URL(value);

@@ -44,6 +44,7 @@ test("NOWPayments migration activates once, rejects mismatches, and extends an a
     assert.equal((await reconcile(db, initial, "payment-1", "confirmed")).rows[0].result.activated, true);
     const before = (await db.query(`select current_period_end from public.subscriptions where user_id='${owner}'`)).rows[0].current_period_end;
     assert.equal((await reconcile(db, initial, "payment-1", "confirmed")).rows[0].result.duplicate, true);
+    await assert.rejects(reconcile(db, initial, "payment-1", "confirmed", 99));
     assert.equal((await reconcile(db, initial, "payment-1", "finished")).rows[0].result.activated, false);
     assert.equal((await db.query(`select current_period_end from public.subscriptions where user_id='${owner}'`)).rows[0].current_period_end.toISOString(), before.toISOString());
 
@@ -53,6 +54,25 @@ test("NOWPayments migration activates once, rejects mismatches, and extends an a
     const after = (await db.query(`select current_period_end from public.subscriptions where user_id='${owner}'`)).rows[0].current_period_end;
     assert.ok(after > before);
     assert.equal((await db.query(`select count(*)::int as count from public.payment_transactions where user_id='${owner}'`)).rows[0].count, 2);
+
+    assert.equal((await reconcile(db, renewal, "payment-2", "refunded")).rows[0].result.activated, false);
+    assert.deepEqual((await db.query(`select status from public.subscriptions where user_id='${owner}'`)).rows[0], { status: "past_due" });
+    assert.deepEqual((await db.query("select status from public.payment_transactions where provider_transaction_ref='payment-2'")).rows[0], { status: "refunded" });
+
+    const expired = "dddddddd-dddd-4ddd-8ddd-dddddddddddd";
+    await db.query(`insert into public.nowpayments_payment_orders(order_id,user_id,plan_code,amount_cents,currency,kind,status) values('${expired}','${other}','pro',2900,'USD','initial','waiting')`);
+    assert.equal((await reconcile(db, expired, "payment-4", "expired", 29)).rows[0].result.activated, false);
+    assert.equal((await db.query(`select plan_id from public.subscriptions where user_id='${other}'`)).rows[0].plan_id, "free");
+
+    const partial = "eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee";
+    await db.query(`insert into public.nowpayments_payment_orders(order_id,user_id,plan_code,amount_cents,currency,kind,status) values('${partial}','${other}','starter',900,'USD','initial','waiting')`);
+    assert.equal((await reconcile(db, partial, "payment-5", "partially_paid")).rows[0].result.activated, false);
+    assert.equal((await db.query(`select plan_id from public.subscriptions where user_id='${other}'`)).rows[0].plan_id, "free");
+
+    const failed = "ffffffff-ffff-4fff-8fff-ffffffffffff";
+    await db.query(`insert into public.nowpayments_payment_orders(order_id,user_id,plan_code,amount_cents,currency,kind,status) values('${failed}','${other}','starter',900,'USD','initial','waiting')`);
+    assert.equal((await reconcile(db, failed, "payment-6", "failed")).rows[0].result.activated, false);
+    assert.equal((await db.query(`select plan_id from public.subscriptions where user_id='${other}'`)).rows[0].plan_id, "free");
 
     const bad = "cccccccc-cccc-4ccc-8ccc-cccccccccccc";
     await db.query(`insert into public.nowpayments_payment_orders(order_id,user_id,plan_code,amount_cents,currency,kind,status) values('${bad}','${other}','pro',2900,'USD','initial','waiting')`);

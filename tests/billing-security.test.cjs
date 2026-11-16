@@ -24,6 +24,7 @@ function compile(file, imports) {
 }
 
 const config = compile("lib/billing-config.ts", {});
+const checkoutLogic = compile("lib/billing-checkout.ts", {});
 const requestSecurity = compile("lib/request-security.ts", {});
 const disabledPayments = compile("lib/payments/provider.ts", {
   "./nowpayments": { createNowPaymentsProvider() { return { configured: false }; } },
@@ -82,6 +83,7 @@ test("verified billing events are idempotent and cannot accept a browser user id
 test("paid checkout rejects unauthenticated and self-assigned plans", async () => {
   const checkout = compile("app/api/billing/checkout/route.ts", {
     "@/lib/billing-config": config,
+    "@/lib/billing-checkout": checkoutLogic,
     "@/lib/request-security": requestSecurity,
     "@/lib/payments/provider": disabledPayments,
     "@/lib/billing-server": {
