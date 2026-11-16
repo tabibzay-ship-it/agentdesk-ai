@@ -25,10 +25,9 @@ try {
     New-Item -ItemType Directory -Path $backup -Force | Out-Null
     $recipients = @()
     foreach ($identity in $identities) {
-        & $keygen -o $identity 2>$null
-        if ($LASTEXITCODE -ne 0) { throw 'Synthetic age identity generation failed.' }
-        $recipient = (& $keygen -y $identity).Trim()
-        if ($LASTEXITCODE -ne 0 -or $recipient -notmatch '^age1') { throw 'Synthetic age recipient derivation failed.' }
+        Invoke-NativeCommandCaptured -FilePath $keygen -ArgumentList @('-o', $identity) | Out-Null
+        $recipient = (Invoke-NativeCommandCaptured -FilePath $keygen -ArgumentList @('-y', $identity)).Trim()
+        if ($recipient -notmatch '^age1') { throw 'Synthetic age recipient derivation failed.' }
         $recipients += $recipient
     }
     if (($recipients | Sort-Object -Unique).Count -ne 2) { throw 'Synthetic age recipients are not distinct.' }
@@ -112,7 +111,7 @@ insert into public.storage_objects(owner_id,bucket,object_path,sha256) values ('
     }
     foreach($artifact in $artifacts){$path=Join-Path $backup $artifact.name;$artifact['encrypted_bytes']=(Get-Item $path).Length;$artifact['ciphertext_sha256']=Get-FileSha256Lower $path;$artifact['coverage']='synthetic'}
     [ordered]@{ manifest_version=2;backup_id=$suffix;project_ref='synthetic-local-only';created_utc=[DateTime]::UtcNow.ToString('o');completed_utc=[DateTime]::UtcNow.ToString('o');database_version='17.11';application_commit='synthetic';status='complete';artifacts=$artifacts;storage=[ordered]@{inventory_verified=$true;bucket_count=0;object_count=0;buckets=@();objects=@()};required_recovery_dependencies=@('synthetic age identity','PostgreSQL 17') } |
-        ConvertTo-Json -Depth 20 | Set-Content -LiteralPath (Join-Path $backup 'manifest.json') -Encoding utf8NoBOM
+        ConvertTo-Json -Depth 20 | ForEach-Object { Write-Utf8NoBomFile -LiteralPath (Join-Path $backup 'manifest.json') -Content $_ }
     Write-EncryptedChecksums $backup
     Test-EncryptedChecksums $backup
     Test-BackupManifest $backup | Out-Null
@@ -130,8 +129,16 @@ insert into public.storage_objects(owner_id,bucket,object_path,sha256) values ('
     & docker exec $target psql -U postgres -v ON_ERROR_STOP=1 -c "insert into public.conversations(user_id,title) values ('synthetic-user-a','Post-restore trigger check');" | Out-Null
     $triggerAfter = [int](& docker exec $target psql -U postgres -At -c 'select count(*) from public.trigger_audit;').Trim()
     if ($LASTEXITCODE -ne 0 -or $triggerAfter -ne ($triggerBefore + 1)) { throw 'Normal trigger behavior was not restored after data import.' }
-    & docker exec $target psql -U postgres -v ON_ERROR_STOP=1 -c "insert into public.messages(conversation_id,body) values (999999,'must fail');" 2>$null | Out-Null
-    if ($LASTEXITCODE -eq 0) { throw 'Post-restore foreign-key enforcement failed.' }
+    $foreignKeyRejected = $false
+    try {
+        Invoke-NativeCommandCaptured -FilePath 'docker.exe' -ArgumentList @(
+            'exec', $target, 'psql', '-U', 'postgres', '-v', 'ON_ERROR_STOP=1', '-c',
+            "insert into public.messages(conversation_id,body) values (999999,'must fail');"
+        ) | Out-Null
+    } catch {
+        $foreignKeyRejected = $true
+    }
+    if (-not $foreignKeyRejected) { throw 'Post-restore foreign-key enforcement failed.' }
     $rls = @(& docker exec $target psql -U postgres -At -v ON_ERROR_STOP=1 -c "set role authenticated; select set_config('request.jwt.claim.sub','synthetic-user-a',false); select count(*) from public.conversations;")
     $rlsCount = @($rls | ForEach-Object { $_.Trim() } | Where-Object { $_ -match '^\d+$' })[-1]
     if ($LASTEXITCODE -ne 0 -or $rlsCount -ne '2') { throw 'RLS tenant-isolation verification failed.' }

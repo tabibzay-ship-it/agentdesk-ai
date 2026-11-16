@@ -72,7 +72,7 @@ try {
     $metadata.storage=Export-EncryptedStorageInventory -Adapter $adapter -Destination $run -AgePath $AgePath -AgeRecipient $AgeRecipient
     $metadata.status = 'complete'
     $metadata.completed_utc = [DateTime]::UtcNow.ToString('o')
-    $metadata | ConvertTo-Json -Depth 20 | Set-Content -LiteralPath (Join-Path $run 'manifest.json') -Encoding utf8NoBOM
+    Write-Utf8NoBomFile -LiteralPath (Join-Path $run 'manifest.json') -Content ($metadata | ConvertTo-Json -Depth 20)
     Write-EncryptedChecksums $run
     Test-EncryptedChecksums $run
     Test-BackupManifest $run | Out-Null
@@ -83,6 +83,6 @@ try {
 catch {
     $metadata.status = 'failed'
     $metadata.failed_utc = [DateTime]::UtcNow.ToString('o')
-    $metadata | ConvertTo-Json -Depth 20 | Set-Content -LiteralPath (Join-Path $run 'manifest.failed.json') -Encoding utf8NoBOM
+    Write-Utf8NoBomFile -LiteralPath (Join-Path $run 'manifest.failed.json') -Content ($metadata | ConvertTo-Json -Depth 20)
     throw "Encrypted backup failed. The quarantined partial set remains marked BACKUP_INCOMPLETE at: $run"
 }

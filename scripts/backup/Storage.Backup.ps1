@@ -84,7 +84,7 @@ function Export-EncryptedStorageInventory {
             $result.Add([pscustomobject]@{
                 bucket=$object.bucket; path=$object.path; size=$count; content_type=$object.content_type
                 etag=$object.etag; metadata=$object.metadata; encrypted_artifact=$artifact
-                plaintext_sha256=[Convert]::ToHexString($hash.GetHashAndReset()).ToLowerInvariant()
+                plaintext_sha256=(ConvertTo-LowerHex -Bytes ($hash.GetHashAndReset()))
                 ciphertext_sha256=Get-FileSha256Lower $output
             })
         } finally { $stream.Dispose(); $hash.Dispose(); if(-not $process.HasExited){$process.Kill($true)}; $process.Dispose() }

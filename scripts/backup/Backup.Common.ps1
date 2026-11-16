@@ -1,4 +1,57 @@
 Set-StrictMode -Version Latest
+
+function Write-Utf8NoBomFile {
+    param(
+        [Parameter(Mandatory = $true)][string]$LiteralPath,
+        [Parameter(Mandatory = $true)][AllowEmptyString()][string]$Content
+    )
+
+    [IO.File]::WriteAllText($LiteralPath, $Content, [Text.UTF8Encoding]::new($false))
+}
+
+function ConvertTo-LowerHex {
+    param([Parameter(Mandatory = $true)][byte[]]$Bytes)
+    return ([BitConverter]::ToString($Bytes)).Replace('-', '').ToLowerInvariant()
+}
+
+function ConvertTo-NativeArgumentString {
+    param([Parameter(Mandatory = $true)][string[]]$ArgumentList)
+    return (($ArgumentList | ForEach-Object {
+        '"' + $_.Replace('"', '\"') + '"'
+    }) -join ' ')
+}
+
+function Invoke-NativeCommandCaptured {
+    param(
+        [Parameter(Mandatory = $true)][string]$FilePath,
+        [Parameter(Mandatory = $true)][string[]]$ArgumentList
+    )
+
+    $startInfo = [Diagnostics.ProcessStartInfo]::new()
+    $startInfo.FileName = $FilePath
+    $startInfo.UseShellExecute = $false
+    $startInfo.RedirectStandardOutput = $true
+    $startInfo.RedirectStandardError = $true
+    # ProcessStartInfo.ArgumentList is unavailable in Windows PowerShell 5.1.
+    # These tooling arguments are controlled local paths/options; quote each one
+    # explicitly so spaces are preserved without invoking a command shell.
+    $startInfo.Arguments = ConvertTo-NativeArgumentString $ArgumentList
+
+    $process = [Diagnostics.Process]::new()
+    $process.StartInfo = $startInfo
+    try {
+        if (-not $process.Start()) { throw "Could not start external command: $FilePath" }
+        $stdout = $process.StandardOutput.ReadToEnd()
+        $stderr = $process.StandardError.ReadToEnd()
+        $process.WaitForExit()
+        if ($process.ExitCode -ne 0) {
+            throw "External command failed with exit code $($process.ExitCode): $($stderr.Trim())"
+        }
+        return $stdout
+    } finally {
+        $process.Dispose()
+    }
+}
 $ErrorActionPreference = 'Stop'
 
 $script:ProductionProjectRef = 'cdynahtkwtcinjzmxjcs'
@@ -52,8 +105,34 @@ function New-ProcessInfo {
     $info.FileName = $FilePath
     $info.UseShellExecute = $false
     $info.CreateNoWindow = $true
-    foreach ($argument in $ArgumentList) { [void]$info.ArgumentList.Add($argument) }
+    $info.Arguments = ConvertTo-NativeArgumentString $ArgumentList
     return $info
+}
+
+function Read-StarredSecureString {
+    param([Parameter(Mandatory)][string]$Prompt)
+    Write-Host -NoNewline "$Prompt`: "
+    $secure = [Security.SecureString]::new()
+    while ($true) {
+        $key = [Console]::ReadKey($true)
+        if ($key.Key -eq [ConsoleKey]::Enter) { break }
+        if ($key.Key -eq [ConsoleKey]::Backspace) {
+            if ($secure.Length -gt 0) {
+                $secure.RemoveAt($secure.Length - 1)
+                Write-Host -NoNewline "`b `b"
+            }
+            continue
+        }
+        if (-not [char]::IsControl($key.KeyChar)) {
+            $secure.AppendChar($key.KeyChar)
+            Write-Host -NoNewline '*'
+        }
+    }
+    Write-Host
+    # SecureString implements collection-like pipeline semantics in some
+    # PowerShell hosts.  Wrap it so callers always receive the exact instance
+    # instead of an empty/enumerated pipeline result.
+    return [pscustomobject]@{ SecureString = $secure }
 }
 
 function Invoke-CheckedNativePipeline {
@@ -63,7 +142,9 @@ function Invoke-CheckedNativePipeline {
         [Parameter(Mandatory)][string]$ConsumerPath,
         [Parameter(Mandatory)][string[]]$ConsumerArguments,
         [string]$OutputPath,
-        [switch]$ProducerNeedsDatabasePassword
+        [switch]$ProducerNeedsDatabasePassword,
+        [switch]$InteractiveProducer,
+        [string]$ProducerStandardInput
     )
 
     $producerInfo = New-ProcessInfo $ProducerPath $ProducerArguments
@@ -72,7 +153,20 @@ function Invoke-CheckedNativePipeline {
         [void]$producerInfo.Environment.Remove('PROD_DB_URL')
     }
     $producerInfo.RedirectStandardOutput = $true
-    $producerInfo.RedirectStandardError = $true
+    $hasProducerStandardInput = $PSBoundParameters.ContainsKey('ProducerStandardInput')
+    if ($InteractiveProducer -and $hasProducerStandardInput) {
+        throw 'Interactive producer and redirected producer input cannot be combined.'
+    }
+    if ($InteractiveProducer) {
+        # age reads an encrypted identity passphrase from the inherited console.
+        # Keep stdin/stderr attached while stdout remains the pipeline payload.
+        $producerInfo.CreateNoWindow = $false
+        $producerInfo.RedirectStandardInput = $false
+        $producerInfo.RedirectStandardError = $false
+    } else {
+        $producerInfo.RedirectStandardError = $true
+        if ($hasProducerStandardInput) { $producerInfo.RedirectStandardInput = $true }
+    }
     $consumerInfo = New-ProcessInfo $ConsumerPath $ConsumerArguments
     [void]$consumerInfo.Environment.Remove('PGPASSWORD')
     [void]$consumerInfo.Environment.Remove('PROD_DB_URL')
@@ -85,28 +179,39 @@ function Invoke-CheckedNativePipeline {
     $hash = [Security.Cryptography.IncrementalHash]::CreateHash([Security.Cryptography.HashAlgorithmName]::SHA256)
     try {
         if (-not $producer.Start()) { throw 'Producer process did not start.' }
-        $producerError = $producer.StandardError.ReadToEndAsync()
+        $producerError = if ($InteractiveProducer) { $null } else { $producer.StandardError.ReadToEndAsync() }
         if (-not $consumer.Start()) { throw 'Consumer process did not start.' }
         $consumerError = $consumer.StandardError.ReadToEndAsync()
         $consumerOutput = $consumer.StandardOutput.ReadToEndAsync()
+        if ($hasProducerStandardInput) {
+            $producer.StandardInput.Write($ProducerStandardInput)
+            $producer.StandardInput.Close()
+        }
 
         $buffer = [byte[]]::new(65536)
+        $consumerInputOpen = $true
         while (($count = $producer.StandardOutput.BaseStream.Read($buffer, 0, $buffer.Length)) -gt 0) {
             $hash.AppendData($buffer, 0, $count)
-            $consumer.StandardInput.BaseStream.Write($buffer, 0, $count)
+            if ($consumerInputOpen) {
+                try { $consumer.StandardInput.BaseStream.Write($buffer, 0, $count) }
+                catch { $consumerInputOpen = $false }
+            }
         }
-        $consumer.StandardInput.Close()
+        if ($consumerInputOpen) { $consumer.StandardInput.Close() }
         $producer.WaitForExit(); $consumer.WaitForExit()
 
-        $producerMessage = $producerError.GetAwaiter().GetResult()
+        $producerMessage = if ($producerError) { $producerError.GetAwaiter().GetResult() } else { '' }
         $consumerMessage = $consumerError.GetAwaiter().GetResult()
         $null = $consumerOutput.GetAwaiter().GetResult()
-        if ($producer.ExitCode -ne 0) { throw "Producer failed with exit code $($producer.ExitCode): $producerMessage" }
+        if ($producer.ExitCode -ne 0) {
+            $detail = if ($producerMessage) { ": $producerMessage" } else { '.' }
+            throw "Producer failed with exit code $($producer.ExitCode)$detail"
+        }
         if ($consumer.ExitCode -ne 0) { throw "Consumer failed with exit code $($consumer.ExitCode): $consumerMessage" }
         if ($OutputPath -and ((-not (Test-Path -LiteralPath $OutputPath)) -or (Get-Item -LiteralPath $OutputPath).Length -eq 0)) {
             throw "Expected output is missing or empty: $OutputPath"
         }
-        return [Convert]::ToHexString($hash.GetHashAndReset()).ToLowerInvariant()
+        return (ConvertTo-LowerHex -Bytes ($hash.GetHashAndReset()))
     }
     finally {
         $hash.Dispose()
@@ -117,20 +222,48 @@ function Invoke-CheckedNativePipeline {
     }
 }
 
-function Get-DecryptedSha256 {
-    param([string]$AgePath, [string]$IdentityPath, [string]$EncryptedPath)
-    $info = New-ProcessInfo $AgePath @('--decrypt', '--identity', $IdentityPath, $EncryptedPath)
+function Get-DecryptedSha256FromIdentityText {
+    param([string]$AgePath, [string]$IdentityText, [string]$EncryptedPath)
+    if ([string]::IsNullOrWhiteSpace($IdentityText) -or $IdentityText -notmatch 'AGE-SECRET-KEY-1[0-9A-Z]+') {
+        throw 'The in-memory recovery identity is invalid.'
+    }
+    $info = New-ProcessInfo $AgePath @('--decrypt', '--identity', '-', $EncryptedPath)
+    $info.RedirectStandardInput = $true
     $info.RedirectStandardOutput = $true
     $info.RedirectStandardError = $true
     $process = [Diagnostics.Process]::new(); $process.StartInfo = $info
     $hash = [Security.Cryptography.IncrementalHash]::CreateHash([Security.Cryptography.HashAlgorithmName]::SHA256)
     try {
         [void]$process.Start(); $errorTask = $process.StandardError.ReadToEndAsync()
+        $process.StandardInput.Write($IdentityText); $process.StandardInput.Close()
         $buffer = [byte[]]::new(65536)
         while (($count = $process.StandardOutput.BaseStream.Read($buffer, 0, $buffer.Length)) -gt 0) { $hash.AppendData($buffer, 0, $count) }
-        $process.WaitForExit(); $message = $errorTask.GetAwaiter().GetResult()
-        if ($process.ExitCode -ne 0) { throw "age decryption verification failed: $message" }
-        return [Convert]::ToHexString($hash.GetHashAndReset()).ToLowerInvariant()
+        $process.WaitForExit(); $null = $errorTask.GetAwaiter().GetResult()
+        if ($process.ExitCode -ne 0) { throw "age in-memory identity verification failed with exit code $($process.ExitCode)." }
+        return (ConvertTo-LowerHex -Bytes ($hash.GetHashAndReset()))
+    }
+    finally { $hash.Dispose(); $process.Dispose() }
+}
+
+function Get-DecryptedSha256 {
+    param([string]$AgePath, [string]$IdentityPath, [string]$EncryptedPath)
+    $info = New-ProcessInfo $AgePath @('--decrypt', '--identity', $IdentityPath, $EncryptedPath)
+    # Passphrase-encrypted age identity files must be able to use the caller's
+    # interactive console. Keep stdout redirected only for hashing, while
+    # stdin and stderr remain attached to the console for age's hidden prompt.
+    $info.CreateNoWindow = $false
+    $info.RedirectStandardOutput = $true
+    $info.RedirectStandardError = $false
+    $info.RedirectStandardInput = $false
+    $process = [Diagnostics.Process]::new(); $process.StartInfo = $info
+    $hash = [Security.Cryptography.IncrementalHash]::CreateHash([Security.Cryptography.HashAlgorithmName]::SHA256)
+    try {
+        [void]$process.Start()
+        $buffer = [byte[]]::new(65536)
+        while (($count = $process.StandardOutput.BaseStream.Read($buffer, 0, $buffer.Length)) -gt 0) { $hash.AppendData($buffer, 0, $count) }
+        $process.WaitForExit()
+        if ($process.ExitCode -ne 0) { throw "age decryption verification failed with exit code $($process.ExitCode)." }
+        return (ConvertTo-LowerHex -Bytes ($hash.GetHashAndReset()))
     }
     finally { $hash.Dispose(); $process.Dispose() }
 }
@@ -141,7 +274,12 @@ function Write-EncryptedChecksums {
     $lines = Get-ChildItem -LiteralPath $Directory -Filter '*.age' -File -Recurse |
         Sort-Object FullName |
         ForEach-Object {
-            $relative = [IO.Path]::GetRelativePath($root, $_.FullName).Replace('\','/')
+            $fullName = [IO.Path]::GetFullPath($_.FullName)
+            $rootPrefix = $root.TrimEnd([IO.Path]::DirectorySeparatorChar, [IO.Path]::AltDirectorySeparatorChar) + [IO.Path]::DirectorySeparatorChar
+            if (-not $fullName.StartsWith($rootPrefix, [StringComparison]::OrdinalIgnoreCase)) {
+                throw "Checksum artifact is outside the backup directory: $fullName"
+            }
+            $relative = $fullName.Substring($rootPrefix.Length).Replace('\','/')
             '{0} *{1}' -f (Get-FileHash -LiteralPath $_.FullName -Algorithm SHA256).Hash.ToLowerInvariant(), $relative
         }
     $lines | Set-Content -LiteralPath (Join-Path $Directory 'SHA256SUMS.txt') -Encoding ascii
@@ -175,7 +313,7 @@ function Test-BackupManifest {
     )
     $manifestPath = Join-Path $Directory 'manifest.json'
     if (-not (Test-Path -LiteralPath $manifestPath -PathType Leaf)) { throw 'Backup manifest is missing.' }
-    $manifest = Get-Content -Raw -LiteralPath $manifestPath | ConvertFrom-Json -Depth 20
+    $manifest = Get-Content -Raw -LiteralPath $manifestPath | ConvertFrom-Json
     if ($manifest.manifest_version -ne $script:BackupManifestVersion) { throw 'Unsupported backup manifest version.' }
     if ($manifest.project_ref -ne $script:ProductionProjectRef -and $manifest.project_ref -ne 'synthetic-local-only') {
         throw 'Backup manifest project reference mismatch.'
@@ -234,6 +372,6 @@ function Write-AtomicCompletionMarker {
     $temporary = Join-Path $Directory 'BACKUP_COMPLETE.tmp'
     $final = Join-Path $Directory 'BACKUP_COMPLETE'
     'Verified complete encrypted backup set.' | Set-Content -LiteralPath $temporary -Encoding ascii -NoNewline
-    try { [IO.File]::Move($temporary, $final, $false) }
+    try { [IO.File]::Move($temporary, $final) }
     catch { throw "Could not atomically publish completion marker from '$temporary' to '$final': $($_.Exception.Message)" }
 }

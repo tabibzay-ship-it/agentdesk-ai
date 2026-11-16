@@ -26,7 +26,7 @@ foreach($object in @($manifest.storage.objects)){
         while(($read=$process.StandardOutput.BaseStream.Read($buffer,0,$buffer.Length)) -gt 0){$hash.AppendData($buffer,0,$read);& $adapter.WriteChunk $handle $buffer $read;$count+=$read}
         $process.WaitForExit();$message=$errorTask.GetAwaiter().GetResult()
         if($process.ExitCode -ne 0){throw "Storage decryption failed: $message"}
-        if($count -ne [int64]$object.size -or [Convert]::ToHexString($hash.GetHashAndReset()).ToLowerInvariant() -ne $object.plaintext_sha256){throw "Storage plaintext integrity mismatch: $($object.bucket)/$($object.path)"}
+        if($count -ne [int64]$object.size -or (ConvertTo-LowerHex -Bytes ($hash.GetHashAndReset())) -ne $object.plaintext_sha256){throw "Storage plaintext integrity mismatch: $($object.bucket)/$($object.path)"}
         & $adapter.CompleteObject $handle;$completed=$true
     }finally{if(-not $completed -and $null -ne $handle){& $adapter.AbortObject $handle};$hash.Dispose();$process.Dispose()}
 }
