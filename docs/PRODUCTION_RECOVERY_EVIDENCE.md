@@ -16,12 +16,38 @@ payment, email, or data deletion.
 | Control: `getagentdeskai.com` | `Status: 0`, resolves |
 | Local service-role key against staging | HTTP 401 (key is not a staging key) |
 
-Conclusion: the production project host has been removed from Supabase's DNS
-zone. The failure is not local to this workstation (staging and the app domain
-resolve normally). A paused project normally still resolves, so this is
-consistent with deletion. Supabase Management API is not configured on this
-machine (no access token, no CLI), so the account-side status cannot be read
-from here.
+Conclusion (updated 2026-11-17 after the owner resumed the project): the
+production project was **paused**, not deleted. After the owner resumed it in
+the Supabase dashboard, the hostname resolves again and every production
+endpoint answers. The earlier NXDOMAIN was the pause state, not data loss.
+
+### 1.1 Live production verification after resume
+
+| Check | Result |
+| --- | --- |
+| DNS `cdynahtkwtcinjzmxjcs.supabase.co` | resolves (two Cloudflare IPs) |
+| PostgREST with service role | HTTP 200 |
+| Supabase Auth health | HTTP 200 |
+| Storage bucket `chat-attachments` | present, private, 10 MB limit, MIME allow-list |
+| Exposed tables | 29, covering every migration's principal objects |
+| Anon-key reads of `conversations`, `messages`, `subscriptions`, `leads`, `knowledge_sources` | `42501` permission denied on all five — RLS/grants enforced |
+| AI credit config | `provider_enabled: false`, `emergency_shutdown: true` (fail-closed) |
+
+Live row counts (read-only, exact count header, no customer data read):
+
+| Table | Rows |
+| --- | --- |
+| subscriptions | 3 |
+| subscription_plans | 3 |
+| ai_operation_costs | 4 |
+| conversations | 16 |
+| messages | 104 |
+| knowledge_sources | 2 |
+| chat_attachments | 2 |
+| leads / appointments / marketing_preferences / trial_entitlements / payment_methods / nowpayments_payment_orders / super_admins / billing_events | 0 |
+
+The production data is intact and **newer** than every backup (16 conversations
+and 104 messages versus 13 / 84 in the Oct 9 restore).
 
 ## 2. Historical migration evidence (preserved)
 
@@ -158,8 +184,8 @@ The routes are implemented correctly; production serves an old build
 | Missing | Anything written after deletion (deletion time unknown) | ~10 days + all Storage | ~3 weeks + Storage after Oct 17 | ~5 weeks, all billing/leads/AI credits, all Storage |
 | Storage | Only if the project survives | None in backup | Included (83,804 B archive) | None |
 | Credential needed | Supabase account access | X25519 identity (interactive passphrase) | 7z password (not in stored credentials) | Already available (DPAPI) |
-| Verification done | Not possible here | Integrity only; decryption unverified | Hashes only; archive locked | **Started and queried — verified** |
-| Data-loss risk | Lowest | Low | Medium | Highest |
+| Verification done | **Project resumed; data verified live** | Integrity only; decryption unverified | Hashes only; archive locked | **Started and queried — verified** |
+| Data-loss risk | None observed — newest data present | Low | Medium | Highest |
 
 Priority for maximum data preservation: **A > B > C > D**.
 
@@ -170,10 +196,10 @@ explicit approval and a verified decryptable source.
 
 | Item | State |
 | --- | --- |
-| Release commit | `7fdf204` |
+| Release commit | `358f066` |
 | GitHub CI | `verify` = success; Netlify rule checks success |
 | Public routes in release build | `/`, `/privacy`, `/terms`, `/robots.txt`, `/sitemap.xml` all 200 |
-| Production deploy | stale (~34.6 days); no Netlify token |
-| Auth / AI / billing | blocked on the missing database and invalid OpenAI key |
+| Production deploy | stale (~35 days); `/privacy`, `/terms`, `/robots.txt`, `/sitemap.xml` still 404; no Netlify token |
+| Auth / AI / billing | database reachable; AI fail-closed by config; OpenAI key invalid; payments disabled |
 
 
