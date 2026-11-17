@@ -91,6 +91,33 @@ This is the only backup proven decryptable on this machine. It is five weeks
 older than the 2026-11-07 set, so restoring it would lose all data written
 after 2026-10-09.
 
+### 3.4 October 9 isolated restore — executed and verified
+
+Source: `D:\AgentDesk-\AgentDesk-Isolated-Restore\pgdata` (PostgreSQL 17.11,
+clean shutdown 2026-10-09 20:25 +04:30). It was copied to
+`D:\AgentDesk-\pgdata-verify-20261117` and started on `127.0.0.1:55433`; the
+original directory was never opened for writing.
+
+| Item | Verified value |
+| --- | --- |
+| Database | `agentdesk_restore_rehearsal` |
+| Public tables | 8 (`agent_settings`, `business_profiles`, `chat_rate_limits`, `conversations`, `knowledge_sources`, `messages`, `usage_limits`, `widget_settings`) |
+| RLS | 8 / 8 tables, 14 policies |
+| Users | 3 (latest 2026-10-08) |
+| Conversations | 13 |
+| Messages | 84 (latest 2026-10-09 03:47 +04:30) |
+| Knowledge sources | 2 |
+| Billing / leads / AI credits | absent — predate the Oct 12–17 migrations |
+| Storage objects | 0 |
+
+The instance was stopped cleanly after verification. A stopped copy remains at
+`D:\AgentDesk-\pgdata-verify-20261117`; host policy blocks recursive deletes
+outside the workspace, so it must be removed by the owner:
+
+```powershell
+Remove-Item -LiteralPath 'D:\AgentDesk-\pgdata-verify-20261117' -Recurse -Force
+```
+
 ## 4. Private Storage status
 
 - 2026-11-07 sets contain **no** Storage artifacts.
@@ -123,15 +150,30 @@ The routes are implemented correctly; production serves an old build
 | Supabase | project keys (dead project) | account access / Management API token |
 | OpenAI | — | `invalid_api_key` (revoked) |
 
-## 7. Recovery options
+## 7. Recovery options compared
 
-1. **Best:** restore the original Supabase project from the Supabase dashboard if
-   it is recoverable, then verify the 13-version ledger.
-2. **If recoverable only from backup:** 2026-11-07 archive (complete, newest) once
-   an X25519 recovery identity is supplied interactively; or 2026-10-17 archives
-   once their 7z password is supplied.
-3. **Last resort:** 2026-10-09 archive (proven decryptable) — loses 2026-10-09 →
-   2026-11-07 data.
-4. Storage objects after 2026-10-17 are not recoverable from any found archive.
+| | A. Original project | B. 2026-11-07 DB | C. 2026-10-17 DB + Storage | D. 2026-10-09 DB |
+| --- | --- | --- | --- | --- |
+| Data coverage | Everything up to the moment of removal | Up to 2026-11-07 21:26Z | Up to 2026-10-17 11:24Z | Up to 2026-10-09 03:47 +04:30 |
+| Missing | Anything written after deletion (deletion time unknown) | ~10 days + all Storage | ~3 weeks + Storage after Oct 17 | ~5 weeks, all billing/leads/AI credits, all Storage |
+| Storage | Only if the project survives | None in backup | Included (83,804 B archive) | None |
+| Credential needed | Supabase account access | X25519 identity (interactive passphrase) | 7z password (not in stored credentials) | Already available (DPAPI) |
+| Verification done | Not possible here | Integrity only; decryption unverified | Hashes only; archive locked | **Started and queried — verified** |
+| Data-loss risk | Lowest | Low | Medium | Highest |
 
-Creating a replacement project is intentionally **not** performed here.
+Priority for maximum data preservation: **A > B > C > D**.
+
+A replacement project is intentionally **not** created here; that requires
+explicit approval and a verified decryptable source.
+
+## 8. Deployment readiness
+
+| Item | State |
+| --- | --- |
+| Release commit | `7fdf204` |
+| GitHub CI | `verify` = success; Netlify rule checks success |
+| Public routes in release build | `/`, `/privacy`, `/terms`, `/robots.txt`, `/sitemap.xml` all 200 |
+| Production deploy | stale (~34.6 days); no Netlify token |
+| Auth / AI / billing | blocked on the missing database and invalid OpenAI key |
+
+
