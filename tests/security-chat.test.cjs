@@ -11,15 +11,19 @@ const agent = "22222222-2222-4222-8222-222222222222";
 const visitor = "33333333-3333-4333-8333-333333333333";
 const reservation = "44444444-4444-4444-8444-444444444444";
 const conversation = "55555555-5555-4555-8555-555555555555";
+const assistantMessage = "66666666-6666-4666-8666-666666666666";
 
-function compile(file, imports, logs = []) {
+function compile(file, imports, logs = [], environment = { NODE_ENV: "production" }) {
   const compiledModule = { exports: {} };
   const context = {
     module: compiledModule, exports: compiledModule.exports,
     require(name) { if (name === "server-only") return {}; if (Object.hasOwn(imports, name)) return imports[name]; return require(name); },
     Request, Response, Headers, URL, TextDecoder, TextEncoder, Uint8Array,
-    setTimeout, clearTimeout, process: { env: { NODE_ENV: "production" } },
-    console: { error(...args) { logs.push(args); } },
+    setTimeout, clearTimeout, process: { env: environment },
+    console: {
+      error(...args) { logs.push(["error", ...args]); },
+      info(...args) { logs.push(["info", ...args]); },
+    },
   };
   vm.runInNewContext(ts.transpileModule(fs.readFileSync(path.join(root, file), "utf8"), {
     compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022, esModuleInterop: true },
@@ -53,6 +57,7 @@ function fixture(options = {}) {
         if (table === "knowledge_sources") return { data: [{ title: "Products", content: "Tenant one catalog" }], error: null };
         if (table === "conversations") return { data: query.op === "select" && options.newConversation ? null : { id: conversation }, error: null };
         if (table === "messages" && query.op === "select") return { data: [{ role: "user", content: "Hello", created_at: "2026-10-07" }], error: null };
+        if (table === "messages" && query.op === "insert") return { data: { id: assistantMessage }, error: null };
         return { data: null, error: null };
       }
       return builder;
@@ -60,8 +65,9 @@ function fixture(options = {}) {
     async rpc(name, args) {
       rpcs.push({ name, args });
       if (name === "check_chat_rate_limit") return { data: !(args.p_visitor_id === "__agent_burst__" ? options.accountLimited : options.visitorLimited), error: options.rateError ? { message: "PRIVATE_ERROR_DETAILS" } : null };
-      if (name === "billing_security_reserve_ai_usage") return { data: { allowed: !options.monthlyLimited, reservation_id: reservation, period_start: "2026-10-01", plan: "free", used: 1, monthly_limit: 100, remaining: 99 }, error: null };
-      if (name === "security_release_ai_usage") return { data: true, error: null };
+      if (name === "billing_security_reserve_ai_operation") return { data: { allowed: !options.monthlyLimited, credit_reservation_id: reservation, operation: "text_chat", credits_charged: 1, period_start: "2026-10-01", plan: "free", used: 1, monthly_limit: 100, remaining: 99 }, error: null };
+      if (name === "billing_security_settle_ai_operation") return { data: true, error: null };
+      if (name === "billing_security_release_ai_operation") return { data: true, error: null };
       throw new Error(`Unexpected RPC ${name}`);
     },
   };
@@ -69,8 +75,24 @@ function fixture(options = {}) {
     constructor(config) { clientOptions = config; }
     responses = { create: async (args) => {
       ai.push(args);
-      if (options.aiThrows) throw new Error("PRIVATE_ERROR_DETAILS");
-      return { output_text: options.emptyReply ? "" : "Hello from tenant one" };
+      if (options.aiThrows) {
+        const error = new Error("PRIVATE_ERROR_DETAILS");
+        error.name = options.aiErrorName || "APIError";
+        error.status = options.aiErrorStatus || 500;
+        error.code = options.aiErrorCode || "server_error";
+        error.requestID = "req_safe_error";
+        throw error;
+      }
+      return {
+        id: "resp_safe_123",
+        _request_id: "req_safe_123",
+        model: "gpt-5-mini-2025-08-07",
+        status: options.aiStatus || "completed",
+        incomplete_details: options.aiStatus === "incomplete" ? { reason: "max_output_tokens" } : null,
+        error: options.aiStatus === "failed" ? { code: "server_error", message: "PRIVATE_ERROR_DETAILS" } : null,
+        usage: { input_tokens: 21, output_tokens: 8, total_tokens: 29, output_tokens_details: { reasoning_tokens: 3 } },
+        output_text: options.emptyReply ? "" : "Hello from tenant one",
+      };
     } };
   }
   const route = compile("app/api/chat/route.ts", {
@@ -81,11 +103,22 @@ function fixture(options = {}) {
     "@/lib/request-security": bodyHelper,
     "@/lib/chat-attachments": {
       CHAT_ATTACHMENT_BUCKET: "chat-attachments",
+      MAX_ACCOUNT_STORAGE_BYTES: 100 * 1024 * 1024,
       MAX_ATTACHMENTS_PER_MESSAGE: 5,
       MAX_TOTAL_CONTEXT_CHARS: 32000,
       attachmentDto(row) { return row; },
     },
-  }, logs);
+    "@/lib/chat-artifacts": {
+      classifyImageRequest() { return { kind: "none" }; },
+      async createTemplateImage() { throw new Error("Unexpected image generation"); },
+      async editImage() { throw new Error("Unexpected image edit"); },
+    },
+    "@/lib/image-provider": {
+      imageProviderEnabled() { return false; },
+      createImageProvider() { throw new Error("Unexpected paid image provider"); },
+    },
+    "@/lib/openai-telemetry": compile("lib/openai-telemetry.ts", { "server-only": {} }),
+  }, logs, options.environment ?? { NODE_ENV: "production" });
   const request = (overrides = {}, origin = "https://customer.example") => new Request("https://agentdesk.example/api/chat", {
     method: "POST", headers: { "Content-Type": "application/json", ...(origin !== undefined ? { Origin: origin } : {}) },
     body: JSON.stringify({ message: "Hello", agentId: agent, visitorId: visitor, ...overrides }),
@@ -131,7 +164,7 @@ test("rotating visitor IDs cannot bypass the account rate bucket", async () => {
 });
 test("visitor, monthly and rate-system failures stop before AI and reservation writes", async () => {
   for (const options of [{ visitorLimited: true }, { monthlyLimited: true }, { rateError: true }]) {
-    const f = fixture(options); const response = await f.route.POST(f.request()); assert.ok([429, 503].includes(response.status)); assert.equal(f.ai.length, 0); assert.equal(f.queries.filter(q => q.op === "insert").length, 0); assert.equal(f.rpcs.filter(r => r.name === "security_release_ai_usage").length, 0);
+    const f = fixture(options); const response = await f.route.POST(f.request()); assert.ok([429, 503].includes(response.status)); assert.equal(f.ai.length, 0); assert.equal(f.queries.filter(q => q.op === "insert").length, 0); assert.equal(f.rpcs.filter(r => r.name === "billing_security_release_ai_operation").length, 0);
   }
 });
 test("every failure after reservation rolls back exactly that reservation", async () => {
@@ -140,19 +173,74 @@ test("every failure after reservation rolls back exactly that reservation", asyn
     { fail: "conversations:insert", newConversation: true }, { fail: "messages:insert" }, { aiThrows: true }, { emptyReply: true },
   ]) {
     const f = fixture(options); assert.equal((await f.route.POST(f.request())).status, 500);
-    const releases = f.rpcs.filter(r => r.name === "security_release_ai_usage"); assert.equal(releases.length, 1);
+    const releases = f.rpcs.filter(r => r.name === "billing_security_release_ai_operation"); assert.equal(releases.length, 1);
     assert.equal(releases[0].args.p_user_id, owner); assert.equal(releases[0].args.p_reservation_id, reservation);
     assert.ok(!JSON.stringify(f.logs).includes("PRIVATE_ERROR_DETAILS"));
   }
 });
 test("success uses only the resolved account and bounded provider options, without rollback", async () => {
   const f = fixture({ newConversation: true }); const response = await f.route.POST(f.request());
-  assert.equal(response.status, 200); assert.equal((await response.json()).reply, "Hello from tenant one"); assert.equal(response.headers.get("cache-control"), "no-store");
+  assert.equal(response.status, 200); const body = await response.json(); assert.equal(body.reply, "Hello from tenant one"); assert.equal(body.messageId, assistantMessage); assert.equal(response.headers.get("cache-control"), "no-store");
   assert.equal(response.headers.get("access-control-allow-origin"), "https://customer.example");
   for (const table of ["business_profiles", "knowledge_sources", "conversations"]) assert.ok(f.queries.filter(q => q.table === table && q.op === "select").every(q => q.filters.some(([k,v]) => k === "user_id" && v === owner)));
   assert.ok(f.queries.filter(q => q.table === "messages").every(q => q.op === "select" ? q.filters.some(([k,v]) => k === "conversation_id" && v === conversation) : q.values.conversation_id === conversation));
-  assert.equal(f.rpcs.filter(r => r.name === "security_release_ai_usage").length, 0);
+  assert.equal(f.rpcs.filter(r => r.name === "billing_security_release_ai_operation").length, 0);
+  assert.equal(f.rpcs.filter(r => r.name === "billing_security_settle_ai_operation").length, 1);
   assert.equal(f.ai[0].store, false); assert.equal(f.ai[0].max_output_tokens, 2_000); assert.equal(f.clientOptions.maxRetries, 0); assert.equal(f.clientOptions.timeout, 45_000);
+  assert.equal(f.clientOptions.baseURL, undefined);
+  const telemetry = f.logs.find(([level, label]) => level === "info" && label === "OpenAI telemetry:")?.[2];
+  // Values originate in a VM realm, so compare their JSON-safe data rather
+  // than object prototypes from different JavaScript contexts.
+  assert.deepEqual(JSON.parse(JSON.stringify(telemetry)), {
+    event: "openai.response", requestedModel: "gpt-5-mini", actualModel: "gpt-5-mini-2025-08-07",
+    status: "completed", inputTokens: 21, outputTokens: 8, reasoningTokens: 3, totalTokens: 29,
+    incompleteReason: null, errorClassification: null, providerCode: null,
+    requestId: "req_safe_123", responseId: "resp_safe_123",
+  });
+});
+test("production cannot redirect OpenAI traffic through the local E2E base URL", async () => {
+  const f = fixture({ environment: { NODE_ENV: "production", AGENTDESK_LOCAL_OPENAI_BASE_URL: "https://attacker.example/v1" } });
+  assert.equal((await f.route.POST(f.request())).status, 200);
+  assert.equal(f.clientOptions.baseURL, undefined);
+});
+test("production-like local E2E requires an explicit flag and still accepts only loopback", async () => {
+  const local = fixture({ environment: { NODE_ENV: "production", AGENTDESK_LOCAL_E2E: "1", AGENTDESK_LOCAL_OPENAI_BASE_URL: "http://127.0.0.1:43123/v1" } });
+  assert.equal(local.clientOptions.baseURL, "http://127.0.0.1:43123/v1");
+  const rejected = fixture({ environment: { NODE_ENV: "production", AGENTDESK_LOCAL_E2E: "1", AGENTDESK_LOCAL_OPENAI_BASE_URL: "http://192.168.1.10:43123/v1" } });
+  assert.equal(rejected.clientOptions.baseURL, undefined);
+});
+test("development E2E accepts only an HTTP loopback OpenAI endpoint", async () => {
+  const local = fixture({ environment: { NODE_ENV: "development", AGENTDESK_LOCAL_OPENAI_BASE_URL: "http://127.0.0.1:43123/v1" } });
+  assert.equal(local.clientOptions.baseURL, "http://127.0.0.1:43123/v1");
+  for (const candidate of ["https://127.0.0.1:43123/v1", "http://192.168.1.10:43123/v1", "http://user:pass@localhost:43123/v1"]) {
+    const rejected = fixture({ environment: { NODE_ENV: "development", AGENTDESK_LOCAL_OPENAI_BASE_URL: candidate } });
+    assert.equal(rejected.clientOptions.baseURL, undefined);
+  }
+});
+test("incomplete and failed provider responses emit safe telemetry and refund quota", async () => {
+  for (const [status, expectedReason, expectedClassification] of [
+    ["incomplete", "max_output_tokens", null],
+    ["failed", null, "provider_response_error"],
+  ]) {
+    const f = fixture({ aiStatus: status, emptyReply: true });
+    assert.equal((await f.route.POST(f.request())).status, 500);
+    const telemetry = f.logs.find(([level, label]) => level === "info" && label === "OpenAI telemetry:")?.[2];
+    assert.equal(telemetry.status, status);
+    assert.equal(telemetry.incompleteReason, expectedReason);
+    assert.equal(telemetry.errorClassification, expectedClassification);
+    assert.equal(JSON.stringify(telemetry).includes("PRIVATE_ERROR_DETAILS"), false);
+    assert.equal(f.rpcs.filter(r => r.name === "billing_security_release_ai_operation").length, 1);
+  }
+});
+test("provider exceptions emit classified telemetry without leaking messages", async () => {
+  const f = fixture({ aiThrows: true, aiErrorStatus: 429, aiErrorCode: "rate_limit_exceeded" });
+  assert.equal((await f.route.POST(f.request())).status, 500);
+  const telemetry = f.logs.find(([level, label]) => level === "error" && label === "OpenAI telemetry:")?.[2];
+  assert.equal(telemetry.status, "http_429");
+  assert.equal(telemetry.errorClassification, "rate_limit");
+  assert.equal(telemetry.providerCode, "rate_limit_exceeded");
+  assert.equal(telemetry.requestId, "req_safe_error");
+  assert.equal(JSON.stringify(f.logs).includes("PRIVATE_ERROR_DETAILS"), false);
 });
 test("preflight rejects opaque origins without database access", async () => {
   const f = fixture(); const response = await f.route.OPTIONS(new Request("https://agentdesk.example/api/chat", { method: "OPTIONS", headers: { Origin: "null" } })); assert.equal(response.status, 403); assert.equal(f.queries.length, 0);

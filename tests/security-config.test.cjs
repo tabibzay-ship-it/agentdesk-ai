@@ -64,6 +64,11 @@ test("development supports local Supabase and Next.js hot reload without sticky 
   assert.equal(headers["strict-transport-security"], undefined);
 });
 
+test("a production-mode local rehearsal may use loopback HTTP without allowing remote HTTP", async () => {
+  const headers = await headersFor("production", "http://127.0.0.1:54321");
+  assert.match(headers["content-security-policy"], /http:\/\/127\.0\.0\.1:54321 ws:\/\/127\.0\.0\.1:54321/);
+});
+
 test("invalid configuration cannot weaken CSP or send production auth over HTTP", () => {
   for (const url of [
     "http://project.supabase.co", "https://user:password@project.supabase.co",

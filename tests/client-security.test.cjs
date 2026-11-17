@@ -24,6 +24,7 @@ function load(relative, imports = {}, extra = {}) {
     module: compiled, exports: compiled.exports, atob, URL,
     require(name) {
       if (Object.hasOwn(imports, name)) return imports[name];
+      if (name === "@/components/marketing-preferences") return { __esModule: true, default: () => null };
       throw new Error(`Unexpected import: ${name}`);
     },
     ...extra,
@@ -129,6 +130,14 @@ function pageFixture(relative, overrides = {}, extra = {}, auth = {}) {
     } },
     "../../lib/supabase": { supabase },
     "@/lib/supabase": { supabase },
+    "@/components/theme-switcher": { default: "ThemeSwitcher" },
+    "@/components/social-identity-linking": { SocialIdentityLinking: "SocialIdentityLinking" },
+    "@/components/auth-preferences": {
+      AuthPreferences: "AuthPreferences",
+      useAuthLocale() {
+        return { locale: "en", setLocale() {}, rtl: false };
+      },
+    },
   }, { ...extra }).default;
   return {
     states, transitions,
@@ -157,7 +166,14 @@ function findNode(tree, predicate) {
 }
 
 function button(tree, label) {
-  const found = findNode(tree, (node) => node.type === "button" && textContent(node) === label);
+  const normalizedLabel = label.toLocaleLowerCase("en");
+  const found = findNode(
+    tree,
+    (node) =>
+      node.type === "button" &&
+      (textContent(node).toLocaleLowerCase("en") === normalizedLabel ||
+        node.props?.["aria-label"]?.toLocaleLowerCase("en") === normalizedLabel),
+  );
   assert.ok(found, `Missing ${label} button`);
   return found;
 }
@@ -184,7 +200,7 @@ function chatFixture(overrides = {}) {
       requests.push({ url, body: JSON.parse(options.body) });
       return { ok: true, async json() { return { reply: "Test reply" }; } };
     },
-  });
+  }, { async getSession() { return { data: { session: { access_token: "synthetic-token" } } }; } });
   return { ...fixture, storage, requests, ownerKey, otherKey, oldVisitor, otherVisitor };
 }
 
@@ -235,7 +251,11 @@ test("both logout handlers preserve the page on returned or thrown failure and n
           return { error: outcome === "returned error" ? { message: "PRIVATE_DIAGNOSTIC" } : null };
         },
       });
-      await button(fixture.render(), "Sign Out").props.onClick();
+      const result = button(fixture.render(), "Sign Out").props.onClick();
+      await result;
+      // Icon-only handlers intentionally discard their promise (`void signOut()`).
+      // Flush the queued continuation before asserting the settled UI state.
+      await new Promise((resolve) => setImmediate(resolve));
       assert.equal(calls.length, 1, `${relative}: ${outcome}`);
       assert.equal(calls[0].scope, "global", `${relative}: preserves explicit global signout`);
       assert.equal(fixture.states.get("signingOut"), false, `${relative}: clears busy state`);

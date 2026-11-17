@@ -20,7 +20,7 @@ export async function POST(request: Request) {
       return billingJson({ error: "There is no active paid subscription to cancel.", code: "NO_ACTIVE_SUBSCRIPTION" }, 409);
     }
 
-    await provider.cancelSubscription(subscription.provider_subscription_ref);
+    await provider.cancelSubscription(subscription.provider_subscription_ref, { atPeriodEnd: true });
     // Provider cancellation is reconciled by a verified webhook. The browser
     // response never changes paid entitlements or payment state.
     return billingJson({ accepted: true, message: "Cancellation requested. Status updates after provider confirmation." }, 202);

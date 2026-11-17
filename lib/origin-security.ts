@@ -108,6 +108,17 @@ function isLoopbackHostname(hostname: string) {
 }
 
 export function getTrustedApplicationOrigin(request: Request): ParsedOrigin | null {
+  const requestUrl = new URL(request.url);
+  const requestOrigin = parseRequestOrigin(requestUrl.origin);
+  const incoming = parseRequestOrigin(`${requestUrl.protocol}//${request.headers.get("host") || ""}`);
+  // Local development may intentionally keep production values in .env.local.
+  // Trust only an exact loopback request/Host pair here; production never
+  // enters this branch and still requires its configured HTTPS origin.
+  const localE2E = process.env.AGENTDESK_LOCAL_E2E === "1";
+  if ((process.env.NODE_ENV !== "production" || localE2E) && requestOrigin && incoming &&
+      isLoopbackHostname(requestOrigin.hostname) && isLoopbackHostname(incoming.hostname)) {
+    return incoming;
+  }
   const configured = process.env.AGENTDESK_APP_ORIGIN?.trim();
   const netlifyPreviewOrigin =
     process.env.CONTEXT === "deploy-preview"
@@ -121,12 +132,6 @@ export function getTrustedApplicationOrigin(request: Request): ParsedOrigin | nu
     return parsed?.origin.startsWith("https://") ? parsed : null;
   }
   if (process.env.NODE_ENV === "production") return null;
-  const requestUrl = new URL(request.url);
-  const requestOrigin = parseRequestOrigin(requestUrl.origin);
-  // Next normalizes local URLs. Only loopback Host values are trusted here.
-  const incoming = parseRequestOrigin(`${requestUrl.protocol}//${request.headers.get("host") || ""}`);
-  if (requestOrigin && incoming && isLoopbackHostname(requestOrigin.hostname) &&
-      isLoopbackHostname(incoming.hostname)) return incoming;
   return requestOrigin;
 }
 
@@ -170,7 +175,7 @@ export function isRequestOriginAllowed(
   }
 
   if (
-    process.env.NODE_ENV !== "production" &&
+    (process.env.NODE_ENV !== "production" || process.env.AGENTDESK_LOCAL_E2E === "1") &&
     isLoopbackHostname(requestOrigin.hostname) &&
     isLoopbackHostname(requestUrl.hostname)
   ) {

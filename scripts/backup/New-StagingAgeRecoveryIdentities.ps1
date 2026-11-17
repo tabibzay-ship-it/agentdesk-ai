@@ -1,0 +1,10 @@
+[CmdletBinding(SupportsShouldProcess,ConfirmImpact='High')]
+param([Parameter(Mandatory)][string]$CustodyDestinationA,[Parameter(Mandatory)][string]$CustodyDestinationB,[string]$AgeKeygenPath="$PSScriptRoot\..\..\.tools\age\v1.3.2\age\age-keygen.exe",[switch]$ConfirmCustodyDestinations)
+Set-StrictMode -Version Latest;$ErrorActionPreference='Stop'
+if(-not $ConfirmCustodyDestinations){throw 'Explicit confirmation of both custody destinations is required.'}
+$repository=(Resolve-Path "$PSScriptRoot\..\..").Path;$destinations=@([IO.Path]::GetFullPath($CustodyDestinationA),[IO.Path]::GetFullPath($CustodyDestinationB))
+if($destinations[0]-eq$destinations[1]){throw 'Custody destinations must be distinct.'};if([IO.Path]::GetPathRoot($destinations[0])-eq[IO.Path]::GetPathRoot($destinations[1])){throw 'Custody destinations must use separate storage roots.'}
+foreach($destination in $destinations){if($destination.StartsWith($repository,[StringComparison]::OrdinalIgnoreCase)){throw 'Private identities are forbidden inside the Git repository.'};if(-not(Test-Path $destination -PathType Container)){throw 'Each custody destination must already exist.'};if(Test-Path (Join-Path $destination 'agentdesk-staging-recovery.key')){throw 'Refusing to overwrite an existing identity.'}}
+if(-not(Test-Path $AgeKeygenPath -PathType Leaf)){throw 'Verified age-keygen is unavailable.'};if(-not$PSCmdlet.ShouldProcess('two confirmed separate custody destinations','generate independent staging recovery identities')){return}
+for($i=0;$i-lt 2;$i++){$identity=Join-Path $destinations[$i] 'agentdesk-staging-recovery.key';$recipient=Join-Path $destinations[$i] 'agentdesk-staging-recipient.txt';& $AgeKeygenPath '--output' $identity 2>$null;if($LASTEXITCODE-ne 0){throw 'Identity generation failed.'};$public=(& $AgeKeygenPath '--y' $identity 2>$null).Trim();if($public-notmatch'^age1[0-9a-z]+$'){throw 'Recipient validation failed.'};[IO.File]::WriteAllText($recipient,$public+[Environment]::NewLine,[Text.UTF8Encoding]::new($false))}
+Write-Host 'Two independent identities were generated only in the confirmed custody destinations.'

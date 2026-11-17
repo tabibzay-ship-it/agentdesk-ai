@@ -1,0 +1,58 @@
+services:
+  studio:
+    container_name: agentdesk-e2e-studio
+  api-gw:
+    container_name: agentdesk-e2e-api-gw
+    ports: !override
+      - "127.0.0.1:55421:8000/tcp"
+  db:
+    container_name: agentdesk-e2e-db
+    volumes: !override
+      - ./volumes/db/realtime.sql:/docker-entrypoint-initdb.d/migrations/99-realtime.sql:ro
+      - ./volumes/db/webhooks.sql:/docker-entrypoint-initdb.d/init-scripts/98-webhooks.sql:ro
+      - ./volumes/db/roles.sql:/docker-entrypoint-initdb.d/init-scripts/99-roles.sql:ro
+      - ./volumes/db/jwt.sql:/docker-entrypoint-initdb.d/init-scripts/99-jwt.sql:ro
+      - ./volumes/db/_supabase.sql:/docker-entrypoint-initdb.d/migrations/97-_supabase.sql:ro
+      - ./volumes/db/logs.sql:/docker-entrypoint-initdb.d/migrations/99-logs.sql:ro
+      - ./volumes/db/pooler.sql:/docker-entrypoint-initdb.d/migrations/99-pooler.sql:ro
+      - agentdesk-e2e-db-data:/var/lib/postgresql/data
+      - agentdesk-e2e-db-config:/etc/postgresql-custom
+  auth:
+    container_name: agentdesk-e2e-auth
+    environment:
+      GOTRUE_SMTP_HOST: mail
+      GOTRUE_SMTP_PORT: 2500
+      GOTRUE_SMTP_USER: ""
+      GOTRUE_SMTP_PASS: ""
+  rest:
+    container_name: agentdesk-e2e-rest
+  storage:
+    container_name: agentdesk-e2e-storage
+    volumes: !override
+      - agentdesk-e2e-storage-data:/var/lib/storage
+  imgproxy:
+    container_name: agentdesk-e2e-imgproxy
+    volumes: !override
+      - agentdesk-e2e-storage-data:/var/lib/storage:ro
+  meta:
+    container_name: agentdesk-e2e-meta
+  mail:
+    container_name: agentdesk-e2e-mail
+    image: inbucket/inbucket:3.0.3
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:55424:9000/tcp"
+  realtime:
+    container_name: agentdesk-e2e-realtime
+  functions:
+    container_name: agentdesk-e2e-functions
+  supavisor:
+    container_name: agentdesk-e2e-pooler
+    ports: !override
+      - "127.0.0.1:55432:5432/tcp"
+      - "127.0.0.1:55433:6543/tcp"
+
+volumes:
+  agentdesk-e2e-db-data:
+  agentdesk-e2e-db-config:
+  agentdesk-e2e-storage-data:

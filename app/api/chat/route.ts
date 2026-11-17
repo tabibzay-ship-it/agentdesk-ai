@@ -1,10 +1,30 @@
 import "server-only";
+import { createHash, randomUUID } from "node:crypto";
 import OpenAI from "openai";
 import { createClient } from "@supabase/supabase-js";
 import { NextResponse } from "next/server";
 import { buildCorsHeaders, getCorsOrigin, parseRequestOrigin, isRequestOriginAllowed } from "@/lib/origin-security";
 import { BodyError, isVisitorId, readJsonObject } from "@/lib/request-security";
-import { CHAT_ATTACHMENT_BUCKET, MAX_ATTACHMENTS_PER_MESSAGE, MAX_TOTAL_CONTEXT_CHARS, attachmentDto } from "@/lib/chat-attachments";
+import { CHAT_ATTACHMENT_BUCKET, MAX_ACCOUNT_STORAGE_BYTES, MAX_ATTACHMENTS_PER_MESSAGE, MAX_TOTAL_CONTEXT_CHARS, attachmentDto } from "@/lib/chat-attachments";
+import { errorTelemetry, responseTelemetry } from "@/lib/openai-telemetry";
+import { classifyImageRequest, createTemplateImage, editImage } from "@/lib/chat-artifacts";
+import { createImageProvider, imageProviderEnabled } from "@/lib/image-provider";
+
+const OPENAI_MODEL = "gpt-5-mini";
+function getLocalOpenAIBaseUrl() {
+  const candidate = process.env.AGENTDESK_LOCAL_OPENAI_BASE_URL;
+  const localE2E = process.env.AGENTDESK_LOCAL_E2E === "1";
+  if ((process.env.NODE_ENV !== "development" && !localE2E) || !candidate) return undefined;
+  try {
+    const parsed = new URL(candidate);
+    const loopback = parsed.hostname === "127.0.0.1" || parsed.hostname === "localhost" || parsed.hostname === "[::1]";
+    if (parsed.protocol !== "http:" || !loopback || parsed.username || parsed.password) return undefined;
+    return parsed.toString().replace(/\/$/, "");
+  } catch {
+    return undefined;
+  }
+}
+const LOCAL_OPENAI_BASE_URL = getLocalOpenAIBaseUrl();
 
 function createJsonResponse(
   data: Record<string, unknown>,
@@ -50,6 +70,10 @@ export async function OPTIONS(request: Request) {
 
 const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
+  // Enables a loopback-only fake Responses API during authenticated local E2E.
+  // Production deliberately ignores this variable so prompts cannot be
+  // redirected to an untrusted endpoint by configuration alone.
+  ...(LOCAL_OPENAI_BASE_URL ? { baseURL: LOCAL_OPENAI_BASE_URL } : {}),
   timeout: 45_000,
   maxRetries: 0,
 });
@@ -106,6 +130,7 @@ export async function POST(request: Request) {
     const publicAgentId = body.agentId;
     const visitorId = body.visitorId;
     const attachmentIds = body.attachmentIds === undefined ? [] : body.attachmentIds;
+    const requestId = body.requestId;
 
     // =====================================
     // VALIDATE MESSAGE
@@ -157,6 +182,10 @@ export async function POST(request: Request) {
 
     const uuidRegex =
       /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+    if (requestId !== undefined && (typeof requestId !== "string" || !uuidRegex.test(requestId))) {
+      return jsonResponse({ error: "Invalid request ID." }, 400);
+    }
 
     if (!uuidRegex.test(publicAgentId)) {
       return jsonResponse(
@@ -357,16 +386,41 @@ export async function POST(request: Request) {
     }
 
     // =====================================
-    // ATOMIC MONTHLY USAGE RESERVATION
+    // ATOMIC CREDIT + ENTITLEMENT RESERVATION
     // =====================================
+
+    let creditOperation = "text_chat";
+    if (attachmentIds.length > 0) {
+      const { data: attachmentKinds, error: attachmentKindError } = await supabaseAdmin
+        .from("chat_attachments")
+        .select("id,kind")
+        .in("id", attachmentIds)
+        .eq("user_id", agentId)
+        .eq("agent_id", agentId)
+        .eq("visitor_id", visitorId)
+        .is("message_id", null);
+      if (attachmentKindError || !attachmentKinds || attachmentKinds.length !== attachmentIds.length) {
+        return jsonResponse({ error: "One or more attachments are unavailable." }, 400);
+      }
+      const intent = classifyImageRequest(cleanMessage, attachmentKinds.some((item) => item.kind === "image"));
+      creditOperation = intent.kind === "generate" ? "image_generation"
+        : intent.kind === "edit" || intent.kind === "unsupported-edit" ? "image_edit"
+        : "attachment_analysis";
+    } else if (classifyImageRequest(cleanMessage, false).kind === "generate") {
+      creditOperation = "image_generation";
+    }
 
     const {
       data: usageResult,
       error: usageError,
     } = await supabaseAdmin.rpc(
-      "billing_security_reserve_ai_usage",
+      "billing_security_reserve_ai_operation",
       {
         p_user_id: agentId,
+        p_operation: creditOperation,
+        // Durable chat-request idempotency is claimed below. Concurrent losers
+        // release this exact credit reservation in the finally block.
+        p_request_id: null,
       }
     );
 
@@ -399,8 +453,11 @@ export async function POST(request: Request) {
     if (usage.allowed !== true) {
       return jsonResponse(
         {
-          error:
-            "Monthly AI message limit reached.",
+          error: usage.reason === "provider_disabled"
+            ? "AI service is temporarily disabled by the platform administrator."
+            : usage.reason === "daily_user_limit" || usage.reason === "daily_global_limit"
+              ? "The daily AI credit limit has been reached."
+              : "Monthly AI credit limit reached.",
           limitReached: true,
           plan: usage.plan,
           used: usage.used,
@@ -410,7 +467,7 @@ export async function POST(request: Request) {
       );
     }
 
-    if (typeof usage.reservation_id !== "string" || !uuidRegex.test(usage.reservation_id)) {
+    if (typeof usage.credit_reservation_id !== "string" || !uuidRegex.test(usage.credit_reservation_id)) {
       console.error("Invalid usage reservation result.");
       return jsonResponse({ error: "Could not reserve AI usage safely." }, 503);
     }
@@ -420,6 +477,23 @@ export async function POST(request: Request) {
     // =====================================
 
     let keepUsageReservation = false;
+    let claimedRequestKey = false;
+    let keepRequestKey = false;
+
+    const settleUsage = async (inputTokens: number | null = null, outputTokens: number | null = null) => {
+      const { data, error } = await supabaseAdmin.rpc("billing_security_settle_ai_operation", {
+        p_user_id: agentId,
+        p_reservation_id: usage.credit_reservation_id,
+        p_input_tokens: inputTokens,
+        p_output_tokens: outputTokens,
+      });
+      if (error || data !== true) {
+        console.error("AI credit settlement error:");
+        return false;
+      }
+      keepUsageReservation = true;
+      return true;
+    };
 
     try {
       // ===================================
@@ -535,6 +609,48 @@ No custom instructions have been provided.
         );
       }
 
+      // A client-generated UUID survives network retries. The durable key is
+      // claimed before any conversation or message write, so concurrent
+      // retries cannot create duplicate history rows or AI responses.
+      if (typeof requestId === "string") {
+        const requestHash = createHash("sha256").update(JSON.stringify({
+          agentId, visitorId, message: cleanMessage, attachmentIds,
+        })).digest("hex");
+        const { error: claimError } = await supabaseAdmin.from("chat_request_keys").insert({
+          id: requestId, user_id: agentId, visitor_id: visitorId,
+          request_hash: requestHash, status: "processing",
+        });
+        if (claimError) {
+          if (claimError.code !== "23505") return jsonResponse({ error: "Could not protect this request from duplication." }, 503);
+          const { data: existingKey, error: existingKeyError } = await supabaseAdmin.from("chat_request_keys")
+            .select("user_id,visitor_id,request_hash,status,response")
+            .eq("id", requestId).maybeSingle();
+          if (existingKeyError || !existingKey || existingKey.user_id !== agentId || existingKey.visitor_id !== visitorId || existingKey.request_hash !== requestHash) {
+            return jsonResponse({ error: "This request ID cannot be reused." }, 409);
+          }
+          if (existingKey.status === "completed" && existingKey.response && typeof existingKey.response === "object") {
+            return jsonResponse({ ...(existingKey.response as Record<string, unknown>), replayed: true });
+          }
+          return jsonResponse({ error: "This message is already being processed.", retryAfter: 2 }, 409);
+        }
+        claimedRequestKey = true;
+      }
+
+      const completeRequest = async (payload: Record<string, unknown>) => {
+        if (typeof requestId !== "string") return true;
+        const { error } = await supabaseAdmin.from("chat_request_keys").update({
+          status: "completed", response: payload, updated_at: new Date().toISOString(),
+        }).eq("id", requestId).eq("user_id", agentId).eq("status", "processing");
+        if (error) {
+          // Keep the processing key fail-closed: a retry must never duplicate
+          // a response that may already have been persisted.
+          keepRequestKey = true;
+          return false;
+        }
+        keepRequestKey = true;
+        return true;
+      };
+
       // ===================================
       // FIND CONVERSATION
       // ===================================
@@ -583,6 +699,7 @@ No custom instructions have been provided.
             visitor_id: visitorId,
             customer_name:
               "Website Visitor",
+            title: cleanMessage.slice(0, 120) || "Attachment conversation",
           })
           .select("id")
           .single();
@@ -650,6 +767,79 @@ No custom instructions have been provided.
           .update({ conversation_id: conversationId, message_id: customerMessage.id })
           .in("id", attachmentIds).eq("user_id", agentId).eq("visitor_id", visitorId).is("message_id", null).select("id");
         if (bindError || bound?.length !== attachmentIds.length) return jsonResponse({ error: "Attachments could not be linked safely." }, 409);
+      }
+
+      // Route explicit visual creation/edit requests before the text model.
+      // Local transforms operate on the exact uploaded bytes, so the source
+      // composition cannot be replaced by an unrelated generated subject.
+      const imageSources = selectedAttachments.filter((item) => item.kind === "image");
+      const imageRequest = classifyImageRequest(cleanMessage, imageSources.length > 0);
+      if (imageRequest.kind !== "none") {
+        let generated: { bytes: Buffer; mimeType: string; sha256: string; name: string } | null = null;
+        let reply = "";
+        if (imageRequest.kind === "unsupported-edit" && imageProviderEnabled() && imageSources.length === 1) {
+          const source = imageSources[0];
+          const { data: blob, error: imageError } = await supabaseAdmin.storage.from(CHAT_ATTACHMENT_BUCKET).download(String(source.storage_path));
+          if (imageError || !blob) return jsonResponse({ error: "The source image could not be read." }, 503);
+          const result = await createImageProvider().edit(new Uint8Array(await blob.arrayBuffer()), String(source.mime_type), cleanMessage, agentId);
+          generated = { ...result, name: `${String(source.original_name).replace(/\.[^.]+$/, "").slice(0, 100)}-ai-edit.png` };
+          reply = `Created a reference-based image edit with ${result.model}. The uploaded image was supplied as the primary reference; generative edits can still vary in fine details.`;
+        } else if (imageRequest.kind === "unsupported-edit") {
+          reply = "This edit needs a true generative image-editing provider, which is currently disabled. Your original image was not changed. Supported local edits are black or white recoloring, grayscale, quality enhancement, and simple near-white background removal.";
+        } else if (imageRequest.kind === "generate") {
+          if (imageProviderEnabled()) {
+            const result = await createImageProvider().generate(cleanMessage, agentId);
+            generated = { ...result, name: `agentdesk-${imageRequest.format}-ai.png` };
+            reply = `Created a generative ${imageRequest.format} with ${result.model}.`;
+          } else {
+            generated = await createTemplateImage(cleanMessage, imageRequest.format);
+            reply = `Created a safe template-based ${imageRequest.format}. This is not generative AI artwork; enable an approved image provider for fully generative results.`;
+          }
+        } else if (imageSources.length !== 1) {
+          reply = "Choose exactly one image for an image edit. Your original files were not changed.";
+        } else {
+          const source = imageSources[0];
+          const { data: blob, error: imageError } = await supabaseAdmin.storage.from(CHAT_ATTACHMENT_BUCKET).download(String(source.storage_path));
+          if (imageError || !blob) return jsonResponse({ error: "The source image could not be read." }, 503);
+          const result = await editImage(new Uint8Array(await blob.arrayBuffer()), imageRequest.operation, String(source.mime_type));
+          const extension = result.mimeType === "image/jpeg" ? "jpg" : result.mimeType === "image/webp" ? "webp" : "png";
+          generated = { ...result, name: `${String(source.original_name).replace(/\.[^.]+$/, "").slice(0, 100)}-${imageRequest.operation.type}.${extension}` };
+          reply = `Image edit completed (${imageRequest.operation.type}). The original subject and composition were retained; this deterministic edit changed only the requested supported attribute.`;
+        }
+
+        const { data: aiMessage, error: aiMessageError } = await supabaseAdmin.from("messages").insert({ conversation_id: conversationId, role: "assistant", content: reply }).select("id").single();
+        if (aiMessageError) return jsonResponse({ error: "The image result could not be saved." }, 500);
+        let outputAttachment: Record<string, unknown> | null = null;
+        if (generated) {
+          const { data: storedFiles, error: quotaError } = await supabaseAdmin.from("chat_attachments").select("size_bytes").eq("user_id", agentId).limit(5_000);
+          const storedBytes = (storedFiles ?? []).reduce((total, row) => total + Number(row.size_bytes || 0), 0);
+          if (quotaError || storedBytes + generated.bytes.byteLength > MAX_ACCOUNT_STORAGE_BYTES) {
+            await supabaseAdmin.from("messages").delete().eq("id", aiMessage.id).eq("conversation_id", conversationId);
+            return jsonResponse({ error: "Your secure attachment storage limit has been reached." }, 413);
+          }
+          const resultId = randomUUID();
+          const extension = generated.mimeType === "image/jpeg" ? "jpg" : generated.mimeType === "image/webp" ? "webp" : "png";
+          const storagePath = `${agentId}/${visitorId}/${resultId}.${extension}`;
+          const { error: uploadError } = await supabaseAdmin.storage.from(CHAT_ATTACHMENT_BUCKET).upload(storagePath, generated.bytes, { contentType: generated.mimeType, upsert: false, cacheControl: "3600" });
+          if (uploadError) {
+            await supabaseAdmin.from("messages").delete().eq("id", aiMessage.id).eq("conversation_id", conversationId);
+            return jsonResponse({ error: "The image result could not be stored." }, 503);
+          }
+          const { data: row, error: insertError } = await supabaseAdmin.from("chat_attachments").insert({
+            id: resultId, user_id: agentId, agent_id: agentId, conversation_id: conversationId, message_id: aiMessage.id,
+            visitor_id: visitorId, storage_path: storagePath, original_name: generated.name, mime_type: generated.mimeType,
+            size_bytes: generated.bytes.byteLength, sha256: generated.sha256, kind: "image", processing_status: "ready", extracted_text: null,
+          }).select("id,original_name,mime_type,size_bytes,kind,processing_status").single();
+          if (insertError) {
+            await Promise.all([supabaseAdmin.storage.from(CHAT_ATTACHMENT_BUCKET).remove([storagePath]), supabaseAdmin.from("messages").delete().eq("id", aiMessage.id).eq("conversation_id", conversationId)]);
+            return jsonResponse({ error: "The image result could not be recorded." }, 503);
+          }
+          outputAttachment = attachmentDto(row);
+        }
+        if (!await settleUsage()) return jsonResponse({ error: "The result was saved, but usage reconciliation is pending." }, 503);
+        const payload = { reply, messageId: aiMessage.id, conversationId, attachments: outputAttachment ? [outputAttachment] : [], usage: { plan: usage.plan, used: usage.used, limit: usage.monthly_limit, remaining: usage.remaining, operation: usage.operation, creditsCharged: usage.credits_charged } };
+        if (!await completeRequest(payload)) return jsonResponse({ error: "The response was saved but its retry key could not be finalized." }, 503);
+        return jsonResponse(payload);
       }
 
       // ===================================
@@ -804,6 +994,10 @@ IMPORTANT RULES:
 
 13. Follow the owner's custom instructions when they do not conflict with these security and factual accuracy rules.
 
+14. When the user asks to revise an attached document or dataset, return the complete revised content in your response so it can be reviewed and exported. Do not claim that the original uploaded file was modified.
+
+15. Do not claim to have generated or edited an image. Image understanding and deterministic image transforms are separate capabilities in this application.
+
 ----------------------------------------
 
 RESPONSE TONE
@@ -838,9 +1032,10 @@ Only say that an attachment was analyzed when its extracted text or image is pre
       // PRODUCTION MODEL
       // ===================================
 
-      const response =
-        await openai.responses.create({
-          model: "gpt-5-mini",
+      let response;
+      try {
+        response = await openai.responses.create({
+          model: OPENAI_MODEL,
           instructions,
           input: [{
             role: "user",
@@ -852,6 +1047,15 @@ Only say that an attachment was analyzed when its extracted text or image is pre
           max_output_tokens: 2_000,
           store: false,
         });
+      } catch (error) {
+        console.error("OpenAI telemetry:", errorTelemetry(error, OPENAI_MODEL));
+        throw error;
+      }
+
+      // Deliberately excludes prompts, response text, headers, account IDs and
+      // credentials. This server-only event is safe to retain for operations.
+      const providerUsage = responseTelemetry(response, OPENAI_MODEL);
+      console.info("OpenAI telemetry:", providerUsage);
 
       // ===================================
       // GET AI REPLY
@@ -875,6 +1079,7 @@ Only say that an attachment was analyzed when its extracted text or image is pre
       // ===================================
 
       const {
+        data: aiMessage,
         error: aiMessageError,
       } = await supabaseAdmin
         .from("messages")
@@ -883,7 +1088,7 @@ Only say that an attachment was analyzed when its extracted text or image is pre
             conversationId,
           role: "assistant",
           content: reply,
-        });
+        }).select("id").single();
 
       if (aiMessageError) {
         console.error("AI message save error:");
@@ -902,10 +1107,12 @@ Only say that an attachment was analyzed when its extracted text or image is pre
       // KEEP RESERVED USAGE
       // ===================================
 
-      keepUsageReservation = true;
-
-      return jsonResponse({
+      if (!await settleUsage(providerUsage.inputTokens, providerUsage.outputTokens)) {
+        return jsonResponse({ error: "The response was saved, but usage reconciliation is pending." }, 503);
+      }
+      const payload = {
         reply,
+        messageId: aiMessage.id,
         conversationId,
         attachments: selectedAttachments.map((item) => attachmentDto(item)),
 
@@ -914,8 +1121,13 @@ Only say that an attachment was analyzed when its extracted text or image is pre
           used: usage.used,
           limit: usage.monthly_limit,
           remaining: usage.remaining,
+          operation: usage.operation,
+          creditsCharged: usage.credits_charged,
         },
-      });
+      };
+      if (!await completeRequest(payload)) return jsonResponse({ error: "The response was saved but its retry key could not be finalized." }, 503);
+
+      return jsonResponse(payload);
     } finally {
       // ===================================
       // ROLLBACK FAILED AI REQUEST
@@ -925,16 +1137,19 @@ Only say that an attachment was analyzed when its extracted text or image is pre
         const {
           error: releaseError,
         } = await supabaseAdmin.rpc(
-          "security_release_ai_usage",
+          "billing_security_release_ai_operation",
           {
             p_user_id: agentId,
-            p_reservation_id: usage.reservation_id,
+            p_reservation_id: usage.credit_reservation_id,
           }
         );
 
         if (releaseError) {
           console.error("Usage rollback error:");
         }
+      }
+      if (claimedRequestKey && !keepRequestKey && typeof requestId === "string") {
+        await supabaseAdmin.from("chat_request_keys").delete().eq("id", requestId).eq("user_id", agentId).eq("status", "processing");
       }
     }
   } catch (error) {

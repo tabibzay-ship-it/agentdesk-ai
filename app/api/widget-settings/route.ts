@@ -211,7 +211,11 @@ export async function GET(request: Request) {
         `
         agent_name,
         welcome_message,
-        primary_color
+        primary_color,
+        position,
+        size,
+        theme,
+        locale
         `
       )
       .eq("user_id", userId)
@@ -246,6 +250,7 @@ export async function GET(request: Request) {
 
         isActive:
           agentSettings.is_active === true,
+        position: "right", size: "standard", theme: "system", locale: "en",
       });
     }
 
@@ -268,6 +273,10 @@ export async function GET(request: Request) {
 
       isActive:
         agentSettings.is_active === true,
+      position: ["left","right"].includes(settings.position) ? settings.position : "right",
+      size: ["compact","standard","large"].includes(settings.size) ? settings.size : "standard",
+      theme: ["light","dark","system"].includes(settings.theme) ? settings.theme : "system",
+      locale: ["en","ps","fa"].includes(settings.locale) ? settings.locale : "en",
     });
   } catch {
     console.error("Widget settings request failed.");

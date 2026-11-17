@@ -216,7 +216,16 @@ async function requestPage(
       agent: false,
       family: address.family,
       // Pin the checked DNS result while retaining the hostname for Host/TLS.
-      lookup: (_hostname, _options, callback) => callback(null, address.address, address.family),
+      lookup: (_hostname, lookupOptions, callback) => {
+        const family = address.family === 6 ? 6 : 4;
+        // Newer Node releases may request all lookup results. Preserve DNS
+        // pinning while honoring both callback shapes.
+        if (typeof lookupOptions === "object" && lookupOptions.all) {
+          callback(null, [{ address: address.address, family }]);
+        } else {
+          callback(null, address.address, family);
+        }
+      },
       signal,
       headers: {
         Accept: "text/html, application/xhtml+xml",

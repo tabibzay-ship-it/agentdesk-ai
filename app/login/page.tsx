@@ -1,29 +1,51 @@
 "use client";
 
 import Link from "next/link";
-import { FormEvent, useState } from "react";
+import { FormEvent, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { supabase } from "../../lib/supabase";
-import { isBoundedText, isValidEmail } from "../../lib/client-security";
+import { isBoundedText, isValidEmail, safeAuthDestination } from "../../lib/client-security";
+import { AuthPreferences, useAuthLocale } from "@/components/auth-preferences";
+import { SocialAuthButtons } from "@/components/social-auth-buttons";
 
 export default function LoginPage() {
   const router = useRouter();
+  const { locale, setLocale, t, rtl } = useAuthLocale(true);
 
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
   const [errorMessage, setErrorMessage] = useState("");
+  const [notice] = useState(() => {
+    if (typeof window === "undefined") return "";
+    const params = new URLSearchParams(window.location.search);
+    if (params.get("confirmed") === "1") return "confirmed";
+    if (params.get("reset") === "success") return "reset";
+    return null;
+  });
+  const submitting = useRef(false);
+
+  useEffect(() => {
+    let active = true;
+    void supabase.auth.getSession().then(({ data }) => {
+      if (active && data.session) {
+        router.replace(safeAuthDestination(new URLSearchParams(window.location.search).get("next")));
+      }
+    });
+    return () => { active = false; };
+  }, [router]);
 
   async function handleLogin(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
-    if (loading) return;
+    if (submitting.current) return;
 
     setErrorMessage("");
     if (!isValidEmail(email.trim()) || !password || !isBoundedText(password, 1024)) {
-      setErrorMessage("Please enter a valid email address and password.");
+      setErrorMessage(t.invalidLogin);
       return;
     }
+    submitting.current = true;
     setLoading(true);
 
     try {
@@ -34,41 +56,41 @@ export default function LoginPage() {
 
       if (error) {
         setErrorMessage(error.status === 429
-          ? "Too many attempts. Please try again later."
-          : "Could not sign in. Check your credentials and email confirmation.");
+          ? t.tooMany : t.loginFailed);
         return;
       }
 
       if (!data.session) {
-        setErrorMessage("Login failed. No session was created.");
+        setErrorMessage(t.noSession);
         return;
       }
 
       setPassword("");
-      router.replace("/dashboard");
+      router.replace(safeAuthDestination(new URLSearchParams(window.location.search).get("next")));
     } catch {
-      setErrorMessage("Something went wrong. Please try again.");
+      setErrorMessage(t.generic);
     } finally {
+      submitting.current = false;
       setLoading(false);
     }
   }
 
   return (
-    <main className="min-h-screen bg-slate-950 text-white">
-      <nav className="mx-auto flex max-w-7xl items-center justify-between px-6 py-6">
+    <main dir={rtl ? "rtl" : "ltr"} className="min-h-screen bg-[var(--background)] text-[var(--foreground)]">
+      <nav className="mx-auto flex max-w-7xl flex-wrap items-center justify-between gap-3 px-4 py-5 sm:px-6">
         <Link href="/" className="text-2xl font-bold">
           AgentDesk <span className="text-blue-500">AI</span>
         </Link>
 
-        <p className="text-sm text-slate-400">
-          Don&apos;t have an account?{" "}
+        <p className="text-sm text-[var(--premium-text-muted)]">
+          {t.noAccount}{" "}
           <Link href="/register" className="font-semibold text-blue-400">
-            Start Free
+            {t.startFree}
           </Link>
         </p>
       </nav>
 
-      <section className="flex min-h-[80vh] items-center justify-center px-6">
+      <section className="flex min-h-[80vh] items-center justify-center px-4 py-8 sm:px-6">
         <div className="w-full max-w-md">
 
           <div className="mb-8 text-center">
@@ -77,23 +99,24 @@ export default function LoginPage() {
             </div>
 
             <h1 className="text-3xl font-bold">
-              Welcome back
+              {t.welcome}
             </h1>
 
-            <p className="mt-3 text-slate-400">
-              Sign in to manage your AI support agent.
+            <p className="mt-3 text-[var(--premium-text-muted)]">
+              {t.loginSubtitle}
             </p>
           </div>
 
           <form
             onSubmit={handleLogin}
-            className="rounded-2xl border border-slate-800 bg-slate-900 p-7 shadow-2xl"
+            className="rounded-2xl border border-[var(--premium-border)] bg-[var(--premium-surface)] p-5 shadow-2xl sm:p-7"
           >
-            <label className="text-sm font-medium">
-              Email address
+            <label htmlFor="login-email" className="text-sm font-medium">
+              {t.email}
             </label>
 
             <input
+              id="login-email"
               type="email"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
@@ -101,37 +124,51 @@ export default function LoginPage() {
               required
               autoComplete="email"
               maxLength={254}
-              className="mt-2 w-full rounded-xl border border-slate-700 bg-slate-950 px-4 py-3 text-white outline-none focus:border-blue-500"
+              className="mt-2 min-h-12 w-full rounded-xl border border-[var(--premium-border)] bg-[var(--premium-surface-muted)] px-4 py-3 text-[var(--premium-text)] outline-none focus:border-blue-500"
             />
 
-            <label className="mt-5 block text-sm font-medium">
-              Password
+            <label htmlFor="login-password" className="mt-5 block text-sm font-medium">
+              {t.password}
             </label>
 
             <div className="relative mt-2">
               <input
+                id="login-password"
                 type={showPassword ? "text" : "password"}
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
-                placeholder="Enter your password"
+                placeholder={t.enterPassword}
                 required
                 autoComplete="current-password"
                 maxLength={1024}
-                className="w-full rounded-xl border border-slate-700 bg-slate-950 px-4 py-3 pr-20 text-white outline-none focus:border-blue-500"
+                className="min-h-12 w-full rounded-xl border border-[var(--premium-border)] bg-[var(--premium-surface-muted)] px-4 py-3 pe-20 text-[var(--premium-text)] outline-none focus:border-blue-500"
               />
 
               <button
                 type="button"
                 onClick={() => setShowPassword((value) => !value)}
-                className="absolute right-4 top-1/2 -translate-y-1/2 text-sm text-slate-400 hover:text-white"
+                aria-label={showPassword ? t.hide : t.show}
+                className="absolute end-4 top-1/2 min-h-11 -translate-y-1/2 text-sm text-[var(--premium-text-muted)] hover:text-blue-500 focus-visible:outline-2 focus-visible:outline-blue-500"
               >
-                {showPassword ? "Hide" : "Show"}
+                {showPassword ? t.hide : t.show}
               </button>
             </div>
 
+            <div className="mt-3 text-end">
+              <Link href="/forgot-password" className="text-sm font-semibold text-blue-400 hover:text-blue-300">
+                {t.forgot}
+              </Link>
+            </div>
+
             {errorMessage && (
-              <div className="mt-5 rounded-xl border border-red-500/30 bg-red-500/10 p-3 text-sm text-red-400">
+              <div role="alert" aria-live="assertive" className="mt-5 rounded-xl border border-red-500/30 bg-red-500/10 p-3 text-sm text-red-400">
                 {errorMessage}
+              </div>
+            )}
+
+            {notice && (
+              <div role="status" aria-live="polite" className="mt-5 rounded-xl border border-emerald-500/30 bg-emerald-500/10 p-3 text-sm text-emerald-400">
+                {notice === "confirmed" ? t.confirmed : t.resetSuccess}
               </div>
             )}
 
@@ -140,13 +177,15 @@ export default function LoginPage() {
               disabled={loading}
               className="mt-6 w-full rounded-xl bg-blue-600 py-3 font-semibold transition hover:bg-blue-500 disabled:cursor-not-allowed disabled:opacity-60"
             >
-              {loading ? "Signing in..." : "Sign In"}
+              {loading ? <span role="status">{t.signingIn}</span> : t.signIn}
             </button>
 
             <p className="mt-6 text-center text-xs text-slate-500">
-              Secure login • AgentDesk AI
+              {t.secureLogin}
             </p>
+            <SocialAuthButtons />
           </form>
+          <div className="mt-5"><AuthPreferences locale={locale} onLocaleChange={setLocale} /></div>
         </div>
       </section>
     </main>
